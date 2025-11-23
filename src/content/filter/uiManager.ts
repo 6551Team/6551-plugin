@@ -85,6 +85,16 @@ export class UIManager {
   }
 
   /**
+   * 隐藏过滤器 UI
+   */
+  hideFilterUI(): void {
+    if (this.filterUI) {
+      this.filterUI.remove()
+      this.filterUI = null
+    }
+  }
+
+  /**
    * 创建或更新过滤器 UI
    */
   updateFilterUI(): void {

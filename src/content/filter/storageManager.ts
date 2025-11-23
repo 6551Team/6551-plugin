@@ -1,4 +1,4 @@
-import { hasAccount, hasWord, getAccountCount, getWordCount, isWasmLoaded } from '../../services/wasmService'
+import { hasAccount, hasWord, hasHandle, getAccountCount, getWordCount, getHandleCount, isWasmLoaded } from '../../services/wasmService'
 
 /**
  * 存储管理类
@@ -25,6 +25,8 @@ export class StorageManager {
   public keywordFilterEnabled = true
   // 用户名过滤开关
   public usernameFilterEnabled = true
+  // 是否显示屏蔽数据UI
+  public showBlockUI = true
   // 总拦截数量
   public totalBlockCount = 0
 
@@ -41,6 +43,7 @@ export class StorageManager {
         'accountFilterEnabled',
         'keywordFilterEnabled',
         'usernameFilterEnabled',
+        'showBlockUI',
         'manualBlockedAccounts',
         'manualWhitelistAccounts',
         'manualBlockedKeywords',
@@ -96,6 +99,7 @@ export class StorageManager {
       this.accountFilterEnabled = result.accountFilterEnabled !== undefined ? result.accountFilterEnabled : true
       this.keywordFilterEnabled = result.keywordFilterEnabled !== undefined ? result.keywordFilterEnabled : true
       this.usernameFilterEnabled = result.usernameFilterEnabled !== undefined ? result.usernameFilterEnabled : true
+      this.showBlockUI = result.showBlockUI !== undefined ? result.showBlockUI : true
       this.totalBlockCount = result.totalBlockCount || 0
       console.log(`[推文过滤器] 总拦截数量: ${this.totalBlockCount}`)
 
@@ -103,12 +107,15 @@ export class StorageManager {
       if (isWasmLoaded()) {
         const accountCount = getAccountCount()
         const keywordCount = getWordCount()
+        const handleCount = getHandleCount()
         console.log(`[推文过滤器] WASM账号数量: ${accountCount}`)
         console.log(`[推文过滤器] WASM关键词数量: ${keywordCount}`)
+        console.log(`[推文过滤器] WASM用户名数量: ${handleCount}`)
 
         await chrome.storage.local.set({
           wasmAccountCount: accountCount,
-          wasmKeywordCount: keywordCount
+          wasmKeywordCount: keywordCount,
+          wasmHandleCount: handleCount
         })
       }
     } catch (error) {
@@ -294,6 +301,14 @@ export class StorageManager {
     for (const whiteUsername of this.manualWhitelistUsernames) {
       if (usernameLower.includes(whiteUsername.toLowerCase())) {
         return null
+      }
+    }
+
+    // 检查系统用户名过滤列表 (handle.json)
+    if (isWasmLoaded()) {
+      const matchedHandle = hasHandle(username)
+      if (matchedHandle) {
+        return matchedHandle
       }
     }
 

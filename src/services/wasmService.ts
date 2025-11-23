@@ -7,10 +7,12 @@ import * as ASLoader from '@assemblyscript/loader'
 
 const YAP_WASM_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/yap.wasm'
 const INFOFI_JSON_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/infofi.json'
+const HANDLE_JSON_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/handle.json'
 
 // WASM 模块实例和关键词数据
 let yapWasmInstance: any = null
 let infofiKeywords: Set<string> = new Set()
+let handleUsernames: Set<string> = new Set()
 
 /**
  * 加载 yap.wasm 模块
@@ -71,12 +73,42 @@ async function loadInfofiJson(): Promise<void> {
 }
 
 /**
+ * 加载 handle.json 用户名数据
+ */
+async function loadHandleJson(): Promise<void> {
+  try {
+    console.log('[数据服务] 正在加载 handle.json...')
+
+    // 使用 fetch 加载 JSON 文件
+    const response = await fetch(HANDLE_JSON_URL)
+    const data = await response.json()
+
+    // 解析数据并转为小写存入 Set
+    if (data.dataList && Array.isArray(data.dataList)) {
+      handleUsernames.clear()
+      data.dataList.forEach((item: { text: string }) => {
+        if (item.text) {
+          handleUsernames.add(item.text.toLowerCase())
+        }
+      })
+      console.log(`[数据服务] handle.json 加载成功，共 ${handleUsernames.size} 个用户名`)
+    } else {
+      throw new Error('handle.json 格式错误')
+    }
+  } catch (error) {
+    console.error('[数据服务] 加载 handle.json 失败:', error)
+    throw error
+  }
+}
+
+/**
  * 初始化所有数据模块
  */
 export async function initializeWasm(): Promise<void> {
   await Promise.all([
     loadYapWasm(),
-    loadInfofiJson()
+    loadInfofiJson(),
+    loadHandleJson()
   ])
   console.log('[数据服务] 所有数据模块初始化完成')
 }
@@ -165,6 +197,43 @@ export function getWordCount(): number {
 }
 
 /**
+ * 检查用户名中是否包含过滤用户名列表中的任何一个
+ * @param text 要检查的用户名文本
+ * @returns 返回匹配到的用户名，如果没有匹配则返回null
+ */
+export function hasHandle(text: string): string | null {
+  if (handleUsernames.size === 0) {
+    console.warn('[数据服务] handle 用户名数据尚未加载')
+    return null
+  }
+
+  try {
+    // 转为小写
+    const lowerText = text.toLowerCase()
+
+    // 检查文本是否包含用户名列表中的任何一个
+    for (const username of handleUsernames) {
+      if (lowerText.includes(username)) {
+        return username
+      }
+    }
+
+    return null
+  } catch (error) {
+    console.error('[数据服务] hasHandle 调用失败:', error, '参数:', text)
+    return null
+  }
+}
+
+/**
+ * 获取过滤用户名数量
+ * @returns 用户名数量
+ */
+export function getHandleCount(): number {
+  return handleUsernames.size
+}
+
+/**
  * 带重试机制的初始化函数
  * @param maxRetries 最大重试次数
  */
@@ -192,5 +261,5 @@ export async function initializeWasmWithRetry(maxRetries = 3): Promise<void> {
  * 检查数据模块是否已加载
  */
 export function isWasmLoaded(): boolean {
-  return yapWasmInstance !== null && infofiKeywords.size > 0
+  return yapWasmInstance !== null && infofiKeywords.size > 0 && handleUsernames.size > 0
 }

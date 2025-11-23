@@ -14,6 +14,7 @@ export const useFilterStore = defineStore('filter', () => {
     accountFilterEnabled: true, // 账号过滤开关
     keywordFilterEnabled: true, // 关键词过滤开关
     usernameFilterEnabled: true, // 用户名过滤开关
+    showBlockUI: true, // 是否显示屏蔽数据UI（右侧面板和占位符）
     wasmAccountCount: 0, // WASM账号数量
     wasmKeywordCount: 0, // WASM关键词数量
   })
@@ -28,6 +29,7 @@ export const useFilterStore = defineStore('filter', () => {
         'accountFilterEnabled',
         'keywordFilterEnabled',
         'usernameFilterEnabled',
+        'showBlockUI',
         'wasmAccountCount',
         'wasmKeywordCount'
       ])
@@ -36,10 +38,11 @@ export const useFilterStore = defineStore('filter', () => {
       state.accountFilterEnabled = result.accountFilterEnabled !== undefined ? result.accountFilterEnabled : true
       state.keywordFilterEnabled = result.keywordFilterEnabled !== undefined ? result.keywordFilterEnabled : true
       state.usernameFilterEnabled = result.usernameFilterEnabled !== undefined ? result.usernameFilterEnabled : true
+      state.showBlockUI = result.showBlockUI !== undefined ? result.showBlockUI : true
       state.wasmAccountCount = result.wasmAccountCount || 0
       state.wasmKeywordCount = result.wasmKeywordCount || 0
 
-      console.log(`[FilterStore] 已加载配置 - 启用: ${state.isEnabled}, 账号过滤: ${state.accountFilterEnabled}, 关键词过滤: ${state.keywordFilterEnabled}, 用户名过滤: ${state.usernameFilterEnabled}`)
+      console.log(`[FilterStore] 已加载配置 - 启用: ${state.isEnabled}, 账号过滤: ${state.accountFilterEnabled}, 关键词过滤: ${state.keywordFilterEnabled}, 用户名过滤: ${state.usernameFilterEnabled}, 显示UI: ${state.showBlockUI}`)
     } catch (error) {
       console.error('[FilterStore] 从存储加载数据失败:', error)
     }
@@ -55,6 +58,7 @@ export const useFilterStore = defineStore('filter', () => {
         accountFilterEnabled: state.accountFilterEnabled,
         keywordFilterEnabled: state.keywordFilterEnabled,
         usernameFilterEnabled: state.usernameFilterEnabled,
+        showBlockUI: state.showBlockUI,
       })
       console.log('[FilterStore] 配置已保存')
     } catch (error) {

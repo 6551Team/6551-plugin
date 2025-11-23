@@ -207,9 +207,11 @@ export class TweetProcessor {
       htmlElement.setAttribute('data-filtered-user', filterValue)
       htmlElement.setAttribute('data-filtered-type', filterType)
 
-      // 在推文后面插入占位块
-      const placeholder = this.createPlaceholder(filterType, filterValue)
-      htmlElement.after(placeholder)
+      // 根据showBlockUI设置决定是否显示占位块
+      if (this.storageManager.showBlockUI) {
+        const placeholder = this.createPlaceholder(filterType, filterValue)
+        htmlElement.after(placeholder)
+      }
 
       // 增加拦截计数
       this.storageManager.incrementBlockCount()
