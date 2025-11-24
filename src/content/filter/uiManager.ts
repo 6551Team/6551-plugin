@@ -226,17 +226,19 @@ export class UIManager {
               alert('加入白名单失败')
             }
           } else if (filterType === '用户名') {
-            // 用户名过滤：从过滤列表中移除
+            // 用户名过滤：加入白名单
             try {
-              const result = await chrome.storage.local.get(['manualBlockedUsernames'])
-              const blockedList = result.manualBlockedUsernames || []
-              const newList = blockedList.filter((item: string) => item !== filterValue)
-              await chrome.storage.local.set({ manualBlockedUsernames: newList })
-              alert(`已将用户名 "${filterValue}" 从过滤列表中移除`)
+              const result = await chrome.storage.local.get(['manualWhitelistUsernames'])
+              const whitelist = result.manualWhitelistUsernames || []
+              if (!whitelist.includes(filterValue)) {
+                whitelist.push(filterValue)
+                await chrome.storage.local.set({ manualWhitelistUsernames: whitelist })
+              }
+              alert(`已将用户名 "${filterValue}" 加入白名单`)
               this.tweetProcessor.showUserTweets(filterValue)
               this.updateFilterUI()
             } catch (error) {
-              alert('移除失败')
+              alert('加入白名单失败')
             }
           }
         }

@@ -125,7 +125,7 @@ onMounted(async () => {
               <el-icon :size="20" color="#909399">
                 <View />
               </el-icon>
-              <span class="text-sm text-gray-700">清爽模式</span>
+              <span class="text-sm text-gray-700">清爽模式<span class="text-xs text-gray-500">(需刷新页面)</span></span>
             </div>
             <el-switch v-model="filterStore.state.showBlockUI" @change="toggleShowBlockUI" :active-value="false" :inactive-value="true" />
           </div>

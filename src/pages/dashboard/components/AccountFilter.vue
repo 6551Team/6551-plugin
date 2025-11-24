@@ -1,46 +1,30 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { computed, onMounted, reactive } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 
-const manualBlockedAccounts = ref<string[]>([]);
-const manualWhitelistAccounts = ref<string[]>([]);
-const isFilterEnabled = ref(true);
-const currentTab = ref<"manual" | "whitelist">("manual");
-const systemAccountCount = ref(0);
-const accountInput = ref("");
-const whitelistInput = ref("");
-const isRefreshing = ref(false);
-
-// 搜索和分页
-const searchText = ref("");
-const systemCurrentPage = ref(1);
-const manualCurrentPage = ref(1);
-const whitelistCurrentPage = ref(1);
-const pageSize = ref(20);
+const state = reactive({
+  manualBlockedAccounts: [] as string[],
+  manualWhitelistAccounts: [] as string[],
+  isFilterEnabled: true,
+  currentTab: "manual" as "manual" | "whitelist",
+  systemAccountCount: 0,
+  accountInput: "",
+  whitelistInput: "",
+  isRefreshing: false,
+  searchText: "",
+  selectedManualAccounts: [] as string[],
+  selectedWhitelistAccounts: [] as string[]
+});
 
 // 过滤后的数据
-
 const filteredManualAccounts = computed(() => {
-  if (!searchText.value) return manualBlockedAccounts.value;
-  return manualBlockedAccounts.value.filter((acc) => acc.toLowerCase().includes(searchText.value.toLowerCase()));
+  if (!state.searchText) return state.manualBlockedAccounts;
+  return state.manualBlockedAccounts.filter((acc) => acc.toLowerCase().includes(state.searchText.toLowerCase()));
 });
 
 const filteredWhitelistAccounts = computed(() => {
-  if (!searchText.value) return manualWhitelistAccounts.value;
-  return manualWhitelistAccounts.value.filter((acc) => acc.toLowerCase().includes(searchText.value.toLowerCase()));
-});
-
-// 分页后的数据
-const paginatedManualAccounts = computed(() => {
-  const start = (manualCurrentPage.value - 1) * pageSize.value;
-  const end = start + pageSize.value;
-  return filteredManualAccounts.value.slice(start, end);
-});
-
-const paginatedWhitelistAccounts = computed(() => {
-  const start = (whitelistCurrentPage.value - 1) * pageSize.value;
-  const end = start + pageSize.value;
-  return filteredWhitelistAccounts.value.slice(start, end);
+  if (!state.searchText) return state.manualWhitelistAccounts;
+  return state.manualWhitelistAccounts.filter((acc) => acc.toLowerCase().includes(state.searchText.toLowerCase()));
 });
 
 /**
@@ -50,16 +34,16 @@ async function loadData() {
   try {
     const result = await chrome.storage.local.get(["manualBlockedAccounts", "manualWhitelistAccounts", "isEnabled", "wasmAccountCount"]);
 
-    manualBlockedAccounts.value = Array.isArray(result.manualBlockedAccounts)
+    state.manualBlockedAccounts = Array.isArray(result.manualBlockedAccounts)
       ? result.manualBlockedAccounts
       : Object.values(result.manualBlockedAccounts || {});
 
-    manualWhitelistAccounts.value = Array.isArray(result.manualWhitelistAccounts)
+    state.manualWhitelistAccounts = Array.isArray(result.manualWhitelistAccounts)
       ? result.manualWhitelistAccounts
       : Object.values(result.manualWhitelistAccounts || {});
 
-    isFilterEnabled.value = result.isEnabled !== undefined ? result.isEnabled : true;
-    systemAccountCount.value = result.wasmAccountCount || 0;
+    state.isFilterEnabled = result.isEnabled !== undefined ? result.isEnabled : true;
+    state.systemAccountCount = result.wasmAccountCount || 0;
   } catch (error) {
     console.error("[推文过滤器] 加载数据失败:", error);
   }
@@ -83,24 +67,23 @@ async function toggleFilterEnabled(value: boolean) {
  * 添加账号
  */
 async function addAccount() {
-  const account = accountInput.value.trim();
+  const account = state.accountInput.trim();
   if (!account) {
     ElMessage.warning("账号不能为空");
     return;
   }
 
-  if (manualBlockedAccounts.value.includes(account)) {
+  if (state.manualBlockedAccounts.includes(account)) {
     ElMessage.warning("账号已存在");
     return;
   }
 
   try {
-    const newList = [...manualBlockedAccounts.value, account];
+    const newList = [...state.manualBlockedAccounts, account];
     await chrome.storage.local.set({ manualBlockedAccounts: newList });
-    manualBlockedAccounts.value = newList;
-    accountInput.value = "";
+    state.manualBlockedAccounts = newList;
+    state.accountInput = "";
     ElMessage.success("添加成功");
-    console.log(`[推文过滤器] 已添加账号: ${account}`);
   } catch (error) {
     console.error("[推文过滤器] 添加账号失败:", error);
     ElMessage.error("添加失败");
@@ -111,24 +94,23 @@ async function addAccount() {
  * 添加白名单账号
  */
 async function addWhitelist() {
-  const account = whitelistInput.value.trim();
+  const account = state.whitelistInput.trim();
   if (!account) {
     ElMessage.warning("账号不能为空");
     return;
   }
 
-  if (manualWhitelistAccounts.value.includes(account)) {
+  if (state.manualWhitelistAccounts.includes(account)) {
     ElMessage.warning("账号已存在");
     return;
   }
 
   try {
-    const newList = [...manualWhitelistAccounts.value, account];
+    const newList = [...state.manualWhitelistAccounts, account];
     await chrome.storage.local.set({ manualWhitelistAccounts: newList });
-    manualWhitelistAccounts.value = newList;
-    whitelistInput.value = "";
+    state.manualWhitelistAccounts = newList;
+    state.whitelistInput = "";
     ElMessage.success("添加成功");
-    console.log(`[推文过滤器] 已添加白名单账号: ${account}`);
   } catch (error) {
     console.error("[推文过滤器] 添加白名单账号失败:", error);
     ElMessage.error("添加失败");
@@ -147,21 +129,81 @@ async function removeAccount(account: string, type: "manual" | "whitelist") {
     });
 
     if (type === "manual") {
-      const newList = manualBlockedAccounts.value.filter((acc) => acc !== account);
+      const newList = state.manualBlockedAccounts.filter((acc) => acc !== account);
       await chrome.storage.local.set({ manualBlockedAccounts: newList });
-      manualBlockedAccounts.value = newList;
+      state.manualBlockedAccounts = newList;
     } else {
-      const newList = manualWhitelistAccounts.value.filter((acc) => acc !== account);
+      const newList = state.manualWhitelistAccounts.filter((acc) => acc !== account);
       await chrome.storage.local.set({ manualWhitelistAccounts: newList });
-      manualWhitelistAccounts.value = newList;
+      state.manualWhitelistAccounts = newList;
     }
 
     ElMessage.success("移除成功");
-    console.log(`[推文过滤器] 已移除账号: ${account}`);
   } catch (error) {
     if (error !== "cancel") {
       console.error("[推文过滤器] 移除账号失败:", error);
       ElMessage.error("移除失败");
+    }
+  }
+}
+
+/**
+ * 批量移除账号
+ */
+async function batchRemoveAccounts(type: "manual" | "whitelist") {
+  if (type === "manual") {
+    if (state.selectedManualAccounts.length === 0) {
+      ElMessage.warning("请先选择要移除的账号");
+      return;
+    }
+
+    try {
+      await ElMessageBox.confirm(`确定要移除选中的 ${state.selectedManualAccounts.length} 个账号吗？`, "提示", {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning",
+      });
+
+      const newList = state.manualBlockedAccounts.filter((acc) =>
+        !state.selectedManualAccounts.includes(acc)
+      );
+
+      await chrome.storage.local.set({ manualBlockedAccounts: newList });
+      state.manualBlockedAccounts = newList;
+      state.selectedManualAccounts = [];
+      ElMessage.success("批量移除成功");
+    } catch (error) {
+      if (error !== "cancel") {
+        console.error("[推文过滤器] 批量移除失败:", error);
+        ElMessage.error("批量移除失败");
+      }
+    }
+  } else {
+    if (state.selectedWhitelistAccounts.length === 0) {
+      ElMessage.warning("请先选择要移除的账号");
+      return;
+    }
+
+    try {
+      await ElMessageBox.confirm(`确定要移除选中的 ${state.selectedWhitelistAccounts.length} 个账号吗？`, "提示", {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning",
+      });
+
+      const newList = state.manualWhitelistAccounts.filter((acc) =>
+        !state.selectedWhitelistAccounts.includes(acc)
+      );
+
+      await chrome.storage.local.set({ manualWhitelistAccounts: newList });
+      state.manualWhitelistAccounts = newList;
+      state.selectedWhitelistAccounts = [];
+      ElMessage.success("批量移除成功");
+    } catch (error) {
+      if (error !== "cancel") {
+        console.error("[推文过滤器] 批量移除失败:", error);
+        ElMessage.error("批量移除失败");
+      }
     }
   }
 }
@@ -178,9 +220,9 @@ function openXAccount(account: string) {
  * 手动刷新数据
  */
 async function handleRefresh() {
-  if (isRefreshing.value) return;
+  if (state.isRefreshing) return;
 
-  isRefreshing.value = true;
+  state.isRefreshing = true;
   try {
     await chrome.runtime.sendMessage({ type: 'MANUAL_UPDATE' });
     await loadData();
@@ -189,20 +231,17 @@ async function handleRefresh() {
     console.error('[推文过滤器] 刷新失败:', error);
     ElMessage.error('刷新失败');
   } finally {
-    isRefreshing.value = false;
+    state.isRefreshing = false;
   }
 }
 
 /**
- * 监听存储变化（仅监听外部变化）
+ * 监听存储变化
  */
 function setupStorageListener() {
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === "local") {
-      // 在服务器数据更新或最后更新时间变化时重新加载
-      if (changes.filterAccounts || changes.lastUpdateTime) {
-        loadData();
-      }
+    if (areaName === "local" && (changes.filterAccounts || changes.lastUpdateTime)) {
+      loadData();
     }
   });
 }
@@ -213,33 +252,31 @@ onMounted(() => {
 });
 </script>
 
-<style></style>
-
 <template>
   <div class="h-full flex flex-col overflow-hidden bg-[#1a1a1a]">
     <!-- 顶部工具栏 -->
     <div class="px-6 py-4 mb-4 border-b border-[#2a2a2a] flex justify-between items-center bg-[#0d0d0d]">
-      <el-input v-model="searchText" placeholder="搜索账号..." clearable class="max-w-400px" />
+      <el-input v-model="state.searchText" placeholder="搜索账号..." clearable class="max-w-400px" />
       <div class="flex items-center gap-4">
-        <el-switch v-model="isFilterEnabled" @change="toggleFilterEnabled" active-text="已启用" inactive-text="已禁用" />
-        <el-button :loading="isRefreshing" @click="handleRefresh" size="small">刷新</el-button>
+        <el-switch v-model="state.isFilterEnabled" @change="toggleFilterEnabled" active-text="已启用" inactive-text="已禁用" />
+        <el-button :loading="state.isRefreshing" @click="handleRefresh" size="small">刷新</el-button>
       </div>
     </div>
 
     <!-- 智能识别提示 -->
     <div class="px-6 py-3 mb-4 bg-[#0d0d0d] border-b border-[#2a2a2a]">
       <p class="text-sm text-gray-400">
-        6551智能识别 <span class="text-[#409eff] font-semibold">{{ systemAccountCount }}</span> 个账户
+        6551智能识别 <span class="text-[#409eff] font-semibold">{{ state.systemAccountCount }}</span> 个账户
       </p>
     </div>
 
     <!-- Tabs -->
-    <el-tabs type="border-card" v-model="currentTab" class="flex-1 flex flex-col overflow-hidden">
+    <el-tabs type="border-card" v-model="state.currentTab" class="flex-1 flex flex-col overflow-hidden">
       <el-tab-pane label="手动过滤" name="manual">
-        <div class="h-[calc(100vh-200px)] flex flex-col bg-[#1a1a1a]">
+        <div class="h-[calc(100vh-280px)] flex flex-col bg-[#1a1a1a]">
           <!-- 添加账号输入框 -->
           <div class="p-4 bg-[#0d0d0d] border-b border-[#2a2a2a]">
-            <el-input v-model="accountInput" placeholder="输入要过滤的账号..." @keyup.enter="addAccount" class="max-w-400px">
+            <el-input v-model="state.accountInput" placeholder="输入要过滤的账号..." @keyup.enter="addAccount" class="max-w-400px">
               <template #append>
                 <el-button type="primary" @click="addAccount">添加</el-button>
               </template>
@@ -248,7 +285,24 @@ onMounted(() => {
 
           <el-empty v-if="filteredManualAccounts.length === 0" description="暂无手动过滤账号" />
           <template v-else>
-            <el-table :data="paginatedManualAccounts" class="flex-1">
+            <div class="p-2 bg-[#0d0d0d] border-b border-[#2a2a2a] flex justify-between items-center">
+              <span class="text-sm text-gray-400">共 {{ filteredManualAccounts.length }} 条</span>
+              <el-button
+                type="danger"
+                size="small"
+                :disabled="state.selectedManualAccounts.length === 0"
+                @click="batchRemoveAccounts('manual')"
+              >
+                批量移除 ({{ state.selectedManualAccounts.length }})
+              </el-button>
+            </div>
+            <el-table
+              :data="filteredManualAccounts"
+              class="flex-1"
+              height="100%"
+              @selection-change="(val: string[]) => state.selectedManualAccounts = val"
+            >
+              <el-table-column type="selection" width="55" />
               <el-table-column label="账号">
                 <template #default="{ row }">
                   <span class="text-[#67c23a] cursor-pointer hover:text-[#85ce61]" @click="openXAccount(row)">
@@ -262,25 +316,15 @@ onMounted(() => {
                 </template>
               </el-table-column>
             </el-table>
-            <div class="p-4 text-right border-t">
-              <el-pagination
-                v-model:current-page="manualCurrentPage"
-                v-model:page-size="pageSize"
-                :page-sizes="[10, 20, 50, 100]"
-                :total="filteredManualAccounts.length"
-                layout="total, sizes, prev, pager, next, jumper"
-                background
-              />
-            </div>
           </template>
         </div>
       </el-tab-pane>
 
       <el-tab-pane label="白名单" name="whitelist">
-        <div class="h-[calc(100vh-200px)] flex flex-col bg-[#1a1a1a]">
+        <div class="h-[calc(100vh-280px)] flex flex-col bg-[#1a1a1a]">
           <!-- 添加白名单账号输入框 -->
           <div class="p-4 bg-[#0d0d0d] border-b border-[#2a2a2a]">
-            <el-input v-model="whitelistInput" placeholder="输入要加入白名单的账号..." @keyup.enter="addWhitelist" class="max-w-400px">
+            <el-input v-model="state.whitelistInput" placeholder="输入要加入白名单的账号..." @keyup.enter="addWhitelist" class="max-w-400px">
               <template #append>
                 <el-button type="primary" @click="addWhitelist">添加</el-button>
               </template>
@@ -289,7 +333,24 @@ onMounted(() => {
 
           <el-empty v-if="filteredWhitelistAccounts.length === 0" description="暂无白名单账号" />
           <template v-else>
-            <el-table :data="paginatedWhitelistAccounts" class="flex-1">
+            <div class="p-2 bg-[#0d0d0d] border-b border-[#2a2a2a] flex justify-between items-center">
+              <span class="text-sm text-gray-400">共 {{ filteredWhitelistAccounts.length }} 条</span>
+              <el-button
+                type="danger"
+                size="small"
+                :disabled="state.selectedWhitelistAccounts.length === 0"
+                @click="batchRemoveAccounts('whitelist')"
+              >
+                批量移除 ({{ state.selectedWhitelistAccounts.length }})
+              </el-button>
+            </div>
+            <el-table
+              :data="filteredWhitelistAccounts"
+              class="flex-1"
+              height="100%"
+              @selection-change="(val: string[]) => state.selectedWhitelistAccounts = val"
+            >
+              <el-table-column type="selection" width="55" />
               <el-table-column label="账号">
                 <template #default="{ row }">
                   <span class="text-[#67c23a] cursor-pointer hover:text-[#85ce61]" @click="openXAccount(row)">
@@ -303,16 +364,6 @@ onMounted(() => {
                 </template>
               </el-table-column>
             </el-table>
-            <div class="p-4 text-right border-t">
-              <el-pagination
-                v-model:current-page="whitelistCurrentPage"
-                v-model:page-size="pageSize"
-                :page-sizes="[10, 20, 50, 100]"
-                :total="filteredWhitelistAccounts.length"
-                layout="total, sizes, prev, pager, next, jumper"
-                background
-              />
-            </div>
           </template>
         </div>
       </el-tab-pane>

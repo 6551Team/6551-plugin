@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from "vue";
+import { computed, onMounted, reactive } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 
 // 过滤项类型
@@ -8,66 +8,33 @@ interface FilterItem {
   isRegexp: boolean;
 }
 
-const manualBlockedKeywords = ref<FilterItem[]>([]);
-const manualWhitelistKeywords = ref<string[]>([]);
-const isFilterEnabled = ref(true);
-const currentTab = ref<"manual" | "whitelist">("manual");
-const whitelistInput = ref("");
-const systemKeywordCount = ref(0);
-const isRefreshing = ref(false);
-
-// 新增关键词表单
-const keywordForm = reactive({
-  isRegexp: false,
-  text: "",
-  tags: [] as string[],
-  tagInput: ""
+const state = reactive({
+  manualBlockedKeywords: [] as FilterItem[],
+  manualWhitelistKeywords: [] as string[],
+  isFilterEnabled: true,
+  currentTab: "manual" as "manual" | "whitelist",
+  whitelistInput: "",
+  systemKeywordCount: 0,
+  isRefreshing: false,
+  searchText: "",
+  keywordForm: {
+    isRegexp: false,
+    text: "",
+    tags: [] as string[]
+  },
+  selectedManualKeywords: [] as FilterItem[],
+  selectedWhitelistKeywords: [] as string[]
 });
 
-/**
- * 处理标签输入
- */
-function handleTagInput(event: KeyboardEvent) {
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    const value = keywordForm.tagInput.trim();
-    if (value && !keywordForm.tags.includes(value)) {
-      keywordForm.tags.push(value);
-    }
-    keywordForm.tagInput = "";
-  }
-}
-
-// 搜索和分页
-const searchText = ref("");
-const systemCurrentPage = ref(1);
-const manualCurrentPage = ref(1);
-const whitelistCurrentPage = ref(1);
-const pageSize = ref(20);
-
 // 过滤后的数据
-
 const filteredManualKeywords = computed(() => {
-  if (!searchText.value) return manualBlockedKeywords.value;
-  return manualBlockedKeywords.value.filter((item) => item.text.toLowerCase().includes(searchText.value.toLowerCase()));
+  if (!state.searchText) return state.manualBlockedKeywords;
+  return state.manualBlockedKeywords.filter((item) => item.text.toLowerCase().includes(state.searchText.toLowerCase()));
 });
 
 const filteredWhitelistKeywords = computed(() => {
-  if (!searchText.value) return manualWhitelistKeywords.value;
-  return manualWhitelistKeywords.value.filter((kw) => kw.toLowerCase().includes(searchText.value.toLowerCase()));
-});
-
-// 分页后的数据
-const paginatedManualKeywords = computed(() => {
-  const start = (manualCurrentPage.value - 1) * pageSize.value;
-  const end = start + pageSize.value;
-  return filteredManualKeywords.value.slice(start, end);
-});
-
-const paginatedWhitelistKeywords = computed(() => {
-  const start = (whitelistCurrentPage.value - 1) * pageSize.value;
-  const end = start + pageSize.value;
-  return filteredWhitelistKeywords.value.slice(start, end);
+  if (!state.searchText) return state.manualWhitelistKeywords;
+  return state.manualWhitelistKeywords.filter((kw) => kw.toLowerCase().includes(state.searchText.toLowerCase()));
 });
 
 /**
@@ -77,24 +44,23 @@ async function loadData() {
   try {
     const result = await chrome.storage.local.get(["manualBlockedKeywords", "manualWhitelistKeywords", "isEnabled", "wasmKeywordCount"]);
 
-    // 兼容旧格式
     const rawKeywords = Array.isArray(result.manualBlockedKeywords)
       ? result.manualBlockedKeywords
       : Object.values(result.manualBlockedKeywords || {});
 
-    manualBlockedKeywords.value = rawKeywords.map((item: any) => {
+    state.manualBlockedKeywords = rawKeywords.map((item: any) => {
       if (typeof item === 'string') {
         return { text: item, isRegexp: false };
       }
       return item as FilterItem;
     });
 
-    manualWhitelistKeywords.value = Array.isArray(result.manualWhitelistKeywords)
+    state.manualWhitelistKeywords = Array.isArray(result.manualWhitelistKeywords)
       ? result.manualWhitelistKeywords
       : Object.values(result.manualWhitelistKeywords || {});
 
-    isFilterEnabled.value = result.isEnabled !== undefined ? result.isEnabled : true;
-    systemKeywordCount.value = result.wasmKeywordCount || 0;
+    state.isFilterEnabled = result.isEnabled !== undefined ? result.isEnabled : true;
+    state.systemKeywordCount = result.wasmKeywordCount || 0;
   } catch (error) {
     console.error("[推文过滤器] 加载数据失败:", error);
   }
@@ -120,14 +86,12 @@ async function toggleFilterEnabled(value: boolean) {
 async function addKeyword() {
   let keyword = "";
 
-  if (keywordForm.isRegexp) {
-    // 正则模式使用文本输入
-    keyword = keywordForm.text.trim();
+  if (state.keywordForm.isRegexp) {
+    keyword = state.keywordForm.text.trim();
     if (!keyword) {
       ElMessage.warning("正则表达式不能为空");
       return;
     }
-    // 验证正则表达式
     try {
       new RegExp(keyword);
     } catch (e) {
@@ -135,16 +99,14 @@ async function addKeyword() {
       return;
     }
   } else {
-    // 非正则模式使用 tags
-    if (keywordForm.tags.length === 0) {
+    if (state.keywordForm.tags.length === 0) {
       ElMessage.warning("关键词不能为空");
       return;
     }
-    keyword = keywordForm.tags.join(',');
+    keyword = state.keywordForm.tags.join(',');
   }
 
-  // 检查是否已存在
-  if (manualBlockedKeywords.value.some(item => item.text === keyword && item.isRegexp === keywordForm.isRegexp)) {
+  if (state.manualBlockedKeywords.some(item => item.text === keyword && item.isRegexp === state.keywordForm.isRegexp)) {
     ElMessage.warning("关键词已存在");
     return;
   }
@@ -152,19 +114,16 @@ async function addKeyword() {
   try {
     const newItem: FilterItem = {
       text: keyword,
-      isRegexp: keywordForm.isRegexp
+      isRegexp: state.keywordForm.isRegexp
     };
-    const newList = [...manualBlockedKeywords.value, newItem];
+    const newList = [...state.manualBlockedKeywords, newItem];
 
-    await chrome.storage.local.set({
-      manualBlockedKeywords: newList,
-    });
+    await chrome.storage.local.set({ manualBlockedKeywords: newList });
 
-    manualBlockedKeywords.value = newList;
-    keywordForm.text = "";
-    keywordForm.tags = [];
+    state.manualBlockedKeywords = newList;
+    state.keywordForm.text = "";
+    state.keywordForm.tags = [];
     ElMessage.success("添加成功");
-    console.log(`[推文过滤器] 已添加关键词: ${keyword}`);
   } catch (error) {
     console.error("[推文过滤器] 添加关键词失败:", error);
     ElMessage.error("添加失败");
@@ -175,24 +134,23 @@ async function addKeyword() {
  * 添加白名单关键词
  */
 async function addWhitelist() {
-  const keyword = whitelistInput.value.trim();
+  const keyword = state.whitelistInput.trim();
   if (!keyword) {
     ElMessage.warning("关键词不能为空");
     return;
   }
 
-  if (manualWhitelistKeywords.value.includes(keyword)) {
+  if (state.manualWhitelistKeywords.includes(keyword)) {
     ElMessage.warning("关键词已存在");
     return;
   }
 
   try {
-    const newList = [...manualWhitelistKeywords.value, keyword];
+    const newList = [...state.manualWhitelistKeywords, keyword];
     await chrome.storage.local.set({ manualWhitelistKeywords: newList });
-    manualWhitelistKeywords.value = newList;
-    whitelistInput.value = "";
+    state.manualWhitelistKeywords = newList;
+    state.whitelistInput = "";
     ElMessage.success("添加成功");
-    console.log(`[推文过滤器] 已添加白名单关键词: ${keyword}`);
   } catch (error) {
     console.error("[推文过滤器] 添加白名单关键词失败:", error);
     ElMessage.error("添加失败");
@@ -213,24 +171,20 @@ async function removeKeyword(item: FilterItem | string, type: "manual" | "whitel
 
     if (type === "manual") {
       const filterItem = item as FilterItem;
-      const newManualList = manualBlockedKeywords.value.filter((k) =>
+      const newManualList = state.manualBlockedKeywords.filter((k) =>
         k.text !== filterItem.text || k.isRegexp !== filterItem.isRegexp
       );
 
-      await chrome.storage.local.set({
-        manualBlockedKeywords: newManualList,
-      });
-
-      manualBlockedKeywords.value = newManualList;
+      await chrome.storage.local.set({ manualBlockedKeywords: newManualList });
+      state.manualBlockedKeywords = newManualList;
     } else {
       const keyword = item as string;
-      const newList = manualWhitelistKeywords.value.filter((k) => k !== keyword);
+      const newList = state.manualWhitelistKeywords.filter((k) => k !== keyword);
       await chrome.storage.local.set({ manualWhitelistKeywords: newList });
-      manualWhitelistKeywords.value = newList;
+      state.manualWhitelistKeywords = newList;
     }
 
     ElMessage.success("移除成功");
-    console.log(`[推文过滤器] 已移除关键词: ${typeof item === 'string' ? item : item.text}`);
   } catch (error) {
     if (error !== "cancel") {
       console.error("[推文过滤器] 移除关键词失败:", error);
@@ -240,12 +194,73 @@ async function removeKeyword(item: FilterItem | string, type: "manual" | "whitel
 }
 
 /**
+ * 批量移除关键词
+ */
+async function batchRemoveKeywords(type: "manual" | "whitelist") {
+  if (type === "manual") {
+    if (state.selectedManualKeywords.length === 0) {
+      ElMessage.warning("请先选择要移除的关键词");
+      return;
+    }
+
+    try {
+      await ElMessageBox.confirm(`确定要移除选中的 ${state.selectedManualKeywords.length} 个关键词吗？`, "提示", {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning",
+      });
+
+      const newList = state.manualBlockedKeywords.filter((k) =>
+        !state.selectedManualKeywords.some(s => s.text === k.text && s.isRegexp === k.isRegexp)
+      );
+
+      await chrome.storage.local.set({ manualBlockedKeywords: newList });
+      state.manualBlockedKeywords = newList;
+      state.selectedManualKeywords = [];
+      ElMessage.success("批量移除成功");
+    } catch (error) {
+      if (error !== "cancel") {
+        console.error("[推文过滤器] 批量移除失败:", error);
+        ElMessage.error("批量移除失败");
+      }
+    }
+  } else {
+    if (state.selectedWhitelistKeywords.length === 0) {
+      ElMessage.warning("请先选择要移除的关键词");
+      return;
+    }
+
+    try {
+      await ElMessageBox.confirm(`确定要移除选中的 ${state.selectedWhitelistKeywords.length} 个关键词吗？`, "提示", {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning",
+      });
+
+      const newList = state.manualWhitelistKeywords.filter((k) =>
+        !state.selectedWhitelistKeywords.includes(k)
+      );
+
+      await chrome.storage.local.set({ manualWhitelistKeywords: newList });
+      state.manualWhitelistKeywords = newList;
+      state.selectedWhitelistKeywords = [];
+      ElMessage.success("批量移除成功");
+    } catch (error) {
+      if (error !== "cancel") {
+        console.error("[推文过滤器] 批量移除失败:", error);
+        ElMessage.error("批量移除失败");
+      }
+    }
+  }
+}
+
+/**
  * 手动刷新数据
  */
 async function handleRefresh() {
-  if (isRefreshing.value) return;
+  if (state.isRefreshing) return;
 
-  isRefreshing.value = true;
+  state.isRefreshing = true;
   try {
     await chrome.runtime.sendMessage({ type: 'MANUAL_UPDATE' });
     await loadData();
@@ -254,20 +269,17 @@ async function handleRefresh() {
     console.error('[推文过滤器] 刷新失败:', error);
     ElMessage.error('刷新失败');
   } finally {
-    isRefreshing.value = false;
+    state.isRefreshing = false;
   }
 }
 
 /**
- * 监听存储变化（仅监听外部变化）
+ * 监听存储变化
  */
 function setupStorageListener() {
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === "local") {
-      // 在服务器数据更新时重新加载
-      if (changes.serverKeywords) {
-        loadData();
-      }
+    if (areaName === "local" && changes.serverKeywords) {
+      loadData();
     }
   });
 }
@@ -278,71 +290,74 @@ onMounted(() => {
 });
 </script>
 
-<style></style>
-
 <template>
   <div class="h-full flex flex-col overflow-hidden bg-[#1a1a1a]">
     <!-- 顶部工具栏 -->
     <div class="px-6 py-4 mb-4 border-b border-[#2a2a2a] flex justify-between items-center bg-[#0d0d0d]">
-      <el-input v-model="searchText" placeholder="搜索关键词..." clearable class="max-w-400px" />
+      <el-input v-model="state.searchText" placeholder="搜索关键词..." clearable class="max-w-400px" />
       <div class="flex items-center gap-4">
-        <el-switch v-model="isFilterEnabled" @change="toggleFilterEnabled" active-text="已启用" inactive-text="已禁用" />
-        <el-button :loading="isRefreshing" @click="handleRefresh" size="small">刷新</el-button>
+        <el-switch v-model="state.isFilterEnabled" @change="toggleFilterEnabled" active-text="已启用" inactive-text="已禁用" />
+        <el-button :loading="state.isRefreshing" @click="handleRefresh" size="small">刷新</el-button>
       </div>
     </div>
 
     <!-- 智能识别提示 -->
     <div class="px-6 py-3 mb-4 bg-[#0d0d0d] border-b border-[#2a2a2a]">
       <p class="text-sm text-gray-400">
-        6551智能识别 <span class="text-[#409eff] font-semibold">{{ systemKeywordCount }}</span> 个关键词
+        6551智能识别 <span class="text-[#409eff] font-semibold">{{ state.systemKeywordCount }}</span> 个关键词
       </p>
     </div>
 
     <!-- Tabs -->
-    <el-tabs type="border-card" v-model="currentTab" class="flex-1 flex flex-col overflow-hidden">
+    <el-tabs type="border-card" v-model="state.currentTab" class="flex-1 flex flex-col overflow-hidden">
       <el-tab-pane label="手动过滤" name="manual">
         <div class="h-[calc(100vh-280px)] flex flex-col bg-[#1a1a1a]">
           <!-- 添加关键词输入框 -->
           <div class="p-4 bg-[#0d0d0d] border-b border-[#2a2a2a]">
             <div class="flex items-center gap-4">
-              <el-checkbox v-model="keywordForm.isRegexp">正则表达式</el-checkbox>
-              <template v-if="keywordForm.isRegexp">
+              <el-checkbox v-model="state.keywordForm.isRegexp" class="mr-4">正则表达式</el-checkbox>
+              <template v-if="state.keywordForm.isRegexp">
                 <el-input
-                  v-model="keywordForm.text"
+                  v-model="state.keywordForm.text"
                   placeholder="输入正则表达式..."
                   @keyup.enter="addKeyword"
                   class="flex-1"
                 />
               </template>
               <template v-else>
-                <div class="flex-1 flex items-center gap-2 flex-wrap p-2 bg-[#1a1a1a] border border-[#3a3a3a] rounded min-h-[32px]">
-                  <el-tag
-                    v-for="(tag, index) in keywordForm.tags"
-                    :key="index"
-                    closable
-                    @close="keywordForm.tags.splice(index, 1)"
-                    size="small"
-                  >
-                    {{ tag }}
-                  </el-tag>
-                  <input
-                    v-model="keywordForm.tagInput"
-                    placeholder="输入关键词后按回车"
-                    class="flex-1 min-w-[120px] bg-transparent border-none outline-none text-white text-sm"
-                    @keydown="handleTagInput"
-                  />
-                </div>
+                <el-input-tag
+                  v-model="state.keywordForm.tags"
+                  placeholder="输入关键词后按回车"
+                  class="flex-1"
+                />
               </template>
               <el-button type="primary" @click="addKeyword">添加</el-button>
             </div>
-            <p class="text-xs text-gray-500 mt-2" v-if="!keywordForm.isRegexp">
+            <p class="text-xs text-gray-500 mt-2" v-if="!state.keywordForm.isRegexp">
               提示：多个关键词需要同时命中才会过滤，例如输入 "t.me" 和 "ca" 需要内容同时包含这两个词才会被过滤
             </p>
           </div>
 
           <el-empty v-if="filteredManualKeywords.length === 0" description="暂无手动过滤关键词" />
           <template v-else>
-            <el-table :data="paginatedManualKeywords" class="flex-1" height="100%">
+            <div class="p-2 bg-[#0d0d0d] border-b border-[#2a2a2a] flex justify-between items-center">
+              <span class="text-sm text-gray-400">共 {{ filteredManualKeywords.length }} 条</span>
+              <el-button
+                type="danger"
+                size="small"
+                :disabled="state.selectedManualKeywords.length === 0"
+                @click="batchRemoveKeywords('manual')"
+              >
+                批量移除 ({{ state.selectedManualKeywords.length }})
+              </el-button>
+            </div>
+            <el-table
+              :data="filteredManualKeywords"
+              class="flex-1"
+              height="100%"
+              @selection-change="(val: FilterItem[]) => state.selectedManualKeywords = val"
+            >
+              <el-table-column type="selection" width="55" />
               <el-table-column label="关键词">
                 <template #default="{ row }">
                   <div class="flex items-center gap-2">
@@ -357,16 +372,6 @@ onMounted(() => {
                 </template>
               </el-table-column>
             </el-table>
-            <div class="p-4 text-right border-t ">
-              <el-pagination
-                v-model:current-page="manualCurrentPage"
-                v-model:page-size="pageSize"
-                :page-sizes="[10, 20, 50, 100]"
-                :total="filteredManualKeywords.length"
-                layout="total, sizes, prev, pager, next, jumper"
-                background
-              />
-            </div>
           </template>
         </div>
       </el-tab-pane>
@@ -375,7 +380,7 @@ onMounted(() => {
         <div class="h-[calc(100vh-280px)] flex flex-col bg-[#1a1a1a]">
           <!-- 添加白名单关键词输入框 -->
           <div class="p-4 bg-[#0d0d0d] border-b border-[#2a2a2a]">
-            <el-input v-model="whitelistInput" placeholder="输入要加入白名单的关键词..." @keyup.enter="addWhitelist" class="max-w-400px">
+            <el-input v-model="state.whitelistInput" placeholder="输入要加入白名单的关键词..." @keyup.enter="addWhitelist" class="max-w-400px">
               <template #append>
                 <el-button type="primary" @click="addWhitelist">添加</el-button>
               </template>
@@ -384,7 +389,24 @@ onMounted(() => {
 
           <el-empty v-if="filteredWhitelistKeywords.length === 0" description="暂无白名单关键词" />
           <template v-else>
-            <el-table :data="paginatedWhitelistKeywords" class="flex-1" height="100%">
+            <div class="p-2 bg-[#0d0d0d] border-b border-[#2a2a2a] flex justify-between items-center">
+              <span class="text-sm text-gray-400">共 {{ filteredWhitelistKeywords.length }} 条</span>
+              <el-button
+                type="danger"
+                size="small"
+                :disabled="state.selectedWhitelistKeywords.length === 0"
+                @click="batchRemoveKeywords('whitelist')"
+              >
+                批量移除 ({{ state.selectedWhitelistKeywords.length }})
+              </el-button>
+            </div>
+            <el-table
+              :data="filteredWhitelistKeywords"
+              class="flex-1"
+              height="100%"
+              @selection-change="(val: string[]) => state.selectedWhitelistKeywords = val"
+            >
+              <el-table-column type="selection" width="55" />
               <el-table-column label="关键词">
                 <template #default="{ row }">
                   <el-tag type="info" effect="dark">{{ row }}</el-tag>
@@ -396,16 +418,6 @@ onMounted(() => {
                 </template>
               </el-table-column>
             </el-table>
-            <div class="p-4 text-right border-t">
-              <el-pagination
-                v-model:current-page="whitelistCurrentPage"
-                v-model:page-size="pageSize"
-                :page-sizes="[10, 20, 50, 100]"
-                :total="filteredWhitelistKeywords.length"
-                layout="total, sizes, prev, pager, next, jumper"
-                background
-              />
-            </div>
           </template>
         </div>
       </el-tab-pane>

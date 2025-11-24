@@ -207,11 +207,9 @@ export class TweetProcessor {
       htmlElement.setAttribute('data-filtered-user', filterValue)
       htmlElement.setAttribute('data-filtered-type', filterType)
 
-      // 根据showBlockUI设置决定是否显示占位块
-      if (this.storageManager.showBlockUI) {
-        const placeholder = this.createPlaceholder(filterType, filterValue)
-        htmlElement.after(placeholder)
-      }
+      // 始终显示占位块（清爽模式只隐藏右侧UI）
+      const placeholder = this.createPlaceholder(filterType, filterValue)
+      htmlElement.after(placeholder)
 
       // 增加拦截计数
       this.storageManager.incrementBlockCount()
