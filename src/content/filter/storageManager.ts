@@ -1,5 +1,11 @@
 import { hasAccount, hasWord, hasHandle, getAccountCount, getWordCount, getHandleCount, isWasmLoaded } from '../../services/wasmService'
 
+// 过滤项类型
+interface FilterItem {
+  text: string
+  isRegexp: boolean
+}
+
 /**
  * 存储管理类
  * 负责加载和监听过滤账号列表和关键词列表
@@ -10,11 +16,11 @@ export class StorageManager {
   // 手动不屏蔽的账号列表(白名单)
   public manualWhitelistAccounts: string[] = []
   // 手动上报的关键词列表
-  public manualBlockedKeywords: string[] = []
+  public manualBlockedKeywords: FilterItem[] = []
   // 关键词白名单
   public manualWhitelistKeywords: string[] = []
   // 手动上报的用户名列表
-  public manualBlockedUsernames: string[] = []
+  public manualBlockedUsernames: FilterItem[] = []
   // 用户名白名单
   public manualWhitelistUsernames: string[] = []
   // 是否启用过滤
@@ -68,9 +74,16 @@ export class StorageManager {
       }
 
       if (result.manualBlockedKeywords) {
-        this.manualBlockedKeywords = Array.isArray(result.manualBlockedKeywords)
+        const rawKeywords = Array.isArray(result.manualBlockedKeywords)
           ? result.manualBlockedKeywords
           : Object.values(result.manualBlockedKeywords)
+        // 兼容旧格式 string[] 和新格式 FilterItem[]
+        this.manualBlockedKeywords = rawKeywords.map((item: any) => {
+          if (typeof item === 'string') {
+            return { text: item, isRegexp: false }
+          }
+          return item as FilterItem
+        })
         console.log(`[推文过滤器] 已加载 ${this.manualBlockedKeywords.length} 个手动过滤关键词`)
       }
 
@@ -82,9 +95,16 @@ export class StorageManager {
       }
 
       if (result.manualBlockedUsernames) {
-        this.manualBlockedUsernames = Array.isArray(result.manualBlockedUsernames)
+        const rawUsernames = Array.isArray(result.manualBlockedUsernames)
           ? result.manualBlockedUsernames
           : Object.values(result.manualBlockedUsernames)
+        // 兼容旧格式 string[] 和新格式 FilterItem[]
+        this.manualBlockedUsernames = rawUsernames.map((item: any) => {
+          if (typeof item === 'string') {
+            return { text: item, isRegexp: false }
+          }
+          return item as FilterItem
+        })
         console.log(`[推文过滤器] 已加载 ${this.manualBlockedUsernames.length} 个手动过滤用户名`)
       }
 
@@ -161,7 +181,13 @@ export class StorageManager {
 
         if (changes.manualBlockedKeywords) {
           const newValue = changes.manualBlockedKeywords.newValue || []
-          this.manualBlockedKeywords = Array.isArray(newValue) ? newValue : Object.values(newValue)
+          const rawKeywords = Array.isArray(newValue) ? newValue : Object.values(newValue)
+          this.manualBlockedKeywords = rawKeywords.map((item: any) => {
+            if (typeof item === 'string') {
+              return { text: item, isRegexp: false }
+            }
+            return item as FilterItem
+          })
           console.log(`[推文过滤器] 手动过滤关键词已更新，共 ${this.manualBlockedKeywords.length} 个关键词`)
           hasChanges = true
         }
@@ -175,7 +201,13 @@ export class StorageManager {
 
         if (changes.manualBlockedUsernames) {
           const newValue = changes.manualBlockedUsernames.newValue || []
-          this.manualBlockedUsernames = Array.isArray(newValue) ? newValue : Object.values(newValue)
+          const rawUsernames = Array.isArray(newValue) ? newValue : Object.values(newValue)
+          this.manualBlockedUsernames = rawUsernames.map((item: any) => {
+            if (typeof item === 'string') {
+              return { text: item, isRegexp: false }
+            }
+            return item as FilterItem
+          })
           console.log(`[推文过滤器] 手动过滤用户名已更新，共 ${this.manualBlockedUsernames.length} 个用户名`)
           hasChanges = true
         }
@@ -277,9 +309,35 @@ export class StorageManager {
     }
 
     // 检查手动过滤列表
-    for (const filterKeyword of this.manualBlockedKeywords) {
-      if (keywordLower.includes(filterKeyword.toLowerCase())) {
-        return filterKeyword
+    for (const filterItem of this.manualBlockedKeywords) {
+      const filterKeywordLower = filterItem.text.toLowerCase()
+
+      if (filterItem.isRegexp) {
+        // 正则表达式匹配
+        try {
+          const regex = new RegExp(filterItem.text, 'i')
+          if (regex.test(keyword)) {
+            return filterItem.text
+          }
+        } catch (e) {
+          console.error('[推文过滤器] 正则表达式错误:', filterItem.text, e)
+        }
+      } else {
+        // 检查是否是组合关键词（包含逗号）
+        if (filterKeywordLower.includes(',')) {
+          // 分割组合关键词，去除空格
+          const parts = filterKeywordLower.split(',').map(p => p.trim()).filter(p => p.length > 0)
+          // 检查是否所有部分都命中
+          const allMatched = parts.every(part => keywordLower.includes(part))
+          if (allMatched) {
+            return filterItem.text
+          }
+        } else {
+          // 单个关键词直接匹配
+          if (keywordLower.includes(filterKeywordLower)) {
+            return filterItem.text
+          }
+        }
       }
     }
 
@@ -313,9 +371,35 @@ export class StorageManager {
     }
 
     // 检查手动过滤列表
-    for (const filterUsername of this.manualBlockedUsernames) {
-      if (usernameLower.includes(filterUsername.toLowerCase())) {
-        return filterUsername
+    for (const filterItem of this.manualBlockedUsernames) {
+      const filterUsernameLower = filterItem.text.toLowerCase()
+
+      if (filterItem.isRegexp) {
+        // 正则表达式匹配
+        try {
+          const regex = new RegExp(filterItem.text, 'i')
+          if (regex.test(username)) {
+            return filterItem.text
+          }
+        } catch (e) {
+          console.error('[推文过滤器] 正则表达式错误:', filterItem.text, e)
+        }
+      } else {
+        // 检查是否是组合用户名（包含逗号）
+        if (filterUsernameLower.includes(',')) {
+          // 分割组合用户名，去除空格
+          const parts = filterUsernameLower.split(',').map(p => p.trim()).filter(p => p.length > 0)
+          // 检查是否所有部分都命中
+          const allMatched = parts.every(part => usernameLower.includes(part))
+          if (allMatched) {
+            return filterItem.text
+          }
+        } else {
+          // 单个用户名直接匹配
+          if (usernameLower.includes(filterUsernameLower)) {
+            return filterItem.text
+          }
+        }
       }
     }
 

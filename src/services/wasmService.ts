@@ -11,8 +11,10 @@ const HANDLE_JSON_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/handle.json
 
 // WASM 模块实例和关键词数据
 let yapWasmInstance: any = null
-let infofiKeywords: Set<string> = new Set()
-let handleUsernames: Set<string> = new Set()
+// 关键词数据：存储 { text: string, isRegexp: boolean }
+let infofiKeywords: Array<{ text: string, isRegexp: boolean }> = []
+// 用户名数据：存储 { text: string, isRegexp: boolean }
+let handleUsernames: Array<{ text: string, isRegexp: boolean }> = []
 
 /**
  * 加载 yap.wasm 模块
@@ -54,15 +56,18 @@ async function loadInfofiJson(): Promise<void> {
     const response = await fetch(INFOFI_JSON_URL)
     const data = await response.json()
 
-    // 解析数据并转为小写存入 Set
+    // 解析数据
     if (data.dataList && Array.isArray(data.dataList)) {
-      infofiKeywords.clear()
-      data.dataList.forEach((item: { text: string }) => {
+      infofiKeywords = []
+      data.dataList.forEach((item: { text: string, isRegexp?: boolean }) => {
         if (item.text) {
-          infofiKeywords.add(item.text.toLowerCase())
+          infofiKeywords.push({
+            text: item.text.toLowerCase(),
+            isRegexp: item.isRegexp || false
+          })
         }
       })
-      console.log(`[数据服务] infofi.json 加载成功，共 ${infofiKeywords.size} 个关键词`)
+      console.log(`[数据服务] infofi.json 加载成功，共 ${infofiKeywords.length} 个关键词`)
     } else {
       throw new Error('infofi.json 格式错误')
     }
@@ -83,15 +88,18 @@ async function loadHandleJson(): Promise<void> {
     const response = await fetch(HANDLE_JSON_URL)
     const data = await response.json()
 
-    // 解析数据并转为小写存入 Set
+    // 解析数据
     if (data.dataList && Array.isArray(data.dataList)) {
-      handleUsernames.clear()
-      data.dataList.forEach((item: { text: string }) => {
+      handleUsernames = []
+      data.dataList.forEach((item: { text: string, isRegexp?: boolean }) => {
         if (item.text) {
-          handleUsernames.add(item.text.toLowerCase())
+          handleUsernames.push({
+            text: item.text.toLowerCase(),
+            isRegexp: item.isRegexp || false
+          })
         }
       })
-      console.log(`[数据服务] handle.json 加载成功，共 ${handleUsernames.size} 个用户名`)
+      console.log(`[数据服务] handle.json 加载成功，共 ${handleUsernames.length} 个用户名`)
     } else {
       throw new Error('handle.json 格式错误')
     }
@@ -161,11 +169,13 @@ export function getAccountCount(): number {
 
 /**
  * 检查文本中是否包含过滤关键词列表中的任何一个
+ * 支持组合关键词：用逗号分隔的关键词需要全部命中才算匹配
+ * 支持正则表达式匹配
  * @param text 要检查的文本
  * @returns 返回匹配到的关键词，如果没有匹配则返回null
  */
 export function hasWord(text: string): string | null {
-  if (infofiKeywords.size === 0) {
+  if (infofiKeywords.length === 0) {
     console.warn('[数据服务] infofi 关键词数据尚未加载')
     return null
   }
@@ -175,9 +185,35 @@ export function hasWord(text: string): string | null {
     const lowerText = text.toLowerCase()
 
     // 检查文本是否包含关键词列表中的任何一个
-    for (const keyword of infofiKeywords) {
-      if (lowerText.includes(keyword)) {
-        return keyword
+    for (const item of infofiKeywords) {
+      const keyword = item.text
+
+      if (item.isRegexp) {
+        // 正则表达式匹配
+        try {
+          const regex = new RegExp(keyword, 'i')
+          if (regex.test(text)) {
+            return keyword
+          }
+        } catch (e) {
+          console.error('[数据服务] 正则表达式错误:', keyword, e)
+        }
+      } else {
+        // 检查是否是组合关键词（包含逗号）
+        if (keyword.includes(',')) {
+          // 分割组合关键词，去除空格
+          const parts = keyword.split(',').map(p => p.trim()).filter(p => p.length > 0)
+          // 检查是否所有部分都命中
+          const allMatched = parts.every(part => lowerText.includes(part))
+          if (allMatched) {
+            return keyword
+          }
+        } else {
+          // 单个关键词直接匹配
+          if (lowerText.includes(keyword)) {
+            return keyword
+          }
+        }
       }
     }
 
@@ -193,16 +229,18 @@ export function hasWord(text: string): string | null {
  * @returns 关键词数量
  */
 export function getWordCount(): number {
-  return infofiKeywords.size
+  return infofiKeywords.length
 }
 
 /**
  * 检查用户名中是否包含过滤用户名列表中的任何一个
+ * 支持组合用户名：用逗号分隔的用户名需要全部命中才算匹配
+ * 支持正则表达式匹配
  * @param text 要检查的用户名文本
  * @returns 返回匹配到的用户名，如果没有匹配则返回null
  */
 export function hasHandle(text: string): string | null {
-  if (handleUsernames.size === 0) {
+  if (handleUsernames.length === 0) {
     console.warn('[数据服务] handle 用户名数据尚未加载')
     return null
   }
@@ -212,9 +250,35 @@ export function hasHandle(text: string): string | null {
     const lowerText = text.toLowerCase()
 
     // 检查文本是否包含用户名列表中的任何一个
-    for (const username of handleUsernames) {
-      if (lowerText.includes(username)) {
-        return username
+    for (const item of handleUsernames) {
+      const username = item.text
+
+      if (item.isRegexp) {
+        // 正则表达式匹配
+        try {
+          const regex = new RegExp(username, 'i')
+          if (regex.test(text)) {
+            return username
+          }
+        } catch (e) {
+          console.error('[数据服务] 正则表达式错误:', username, e)
+        }
+      } else {
+        // 检查是否是组合用户名（包含逗号）
+        if (username.includes(',')) {
+          // 分割组合用户名，去除空格
+          const parts = username.split(',').map(p => p.trim()).filter(p => p.length > 0)
+          // 检查是否所有部分都命中
+          const allMatched = parts.every(part => lowerText.includes(part))
+          if (allMatched) {
+            return username
+          }
+        } else {
+          // 单个用户名直接匹配
+          if (lowerText.includes(username)) {
+            return username
+          }
+        }
       }
     }
 
@@ -230,7 +294,7 @@ export function hasHandle(text: string): string | null {
  * @returns 用户名数量
  */
 export function getHandleCount(): number {
-  return handleUsernames.size
+  return handleUsernames.length
 }
 
 /**
@@ -261,5 +325,5 @@ export async function initializeWasmWithRetry(maxRetries = 3): Promise<void> {
  * 检查数据模块是否已加载
  */
 export function isWasmLoaded(): boolean {
-  return yapWasmInstance !== null && infofiKeywords.size > 0 && handleUsernames.size > 0
+  return yapWasmInstance !== null && infofiKeywords.length > 0 && handleUsernames.length > 0
 }
