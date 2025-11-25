@@ -6,8 +6,8 @@
 import * as ASLoader from '@assemblyscript/loader'
 
 const YAP_WASM_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/yap.wasm.v2'
-const INFOFI_JSON_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/infofi.json'
-const HANDLE_JSON_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/handle.json'
+const INFOFI_JSON_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/infofi.v2.json'
+const HANDLE_JSON_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/handle.v2.json'
 
 // WASM 模块实例和关键词数据
 let yapWasmInstance: any = null
