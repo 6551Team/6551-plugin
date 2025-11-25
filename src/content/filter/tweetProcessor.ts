@@ -148,18 +148,36 @@ export class TweetProcessor {
   }
 
   /**
+   * 检测主题
+   */
+  private detectTheme(): 'light' | 'dark' {
+    const htmlStyle = window.getComputedStyle(document.documentElement)
+    const colorScheme = htmlStyle.colorScheme || htmlStyle.getPropertyValue('color-scheme')
+    return colorScheme && colorScheme.includes('dark') ? 'dark' : 'light'
+  }
+
+  /**
    * 创建占位块元素
    */
   private createPlaceholder(filterType: string, filterValue: string): HTMLElement {
     const placeholder = document.createElement('div')
     placeholder.className = 'tweet-filter-placeholder'
     placeholder.setAttribute('data-filter-placeholder', 'true')
+
+    // 根据主题设置颜色
+    const theme = this.detectTheme()
+    const bgColor = theme === 'dark' ? '#1e1e1e' : '#f7f9f9'
+    const borderColor = theme === 'dark' ? '#2f2f2f' : '#eff3f4'
+    const textColor = theme === 'dark' ? '#8b8b8b' : '#536471'
+    const strongColor = theme === 'dark' ? '#b4b4b4' : '#0f1419'
+    const btnTextColor = theme === 'dark' ? '#ffffff' : '#0f1419'
+
     placeholder.style.cssText = `
       padding: 8px 12px;
       margin: 4px 4px;
-      background-color: #1e1e1e;
-      border: 1px solid #2f2f2f;
-      color: #8b8b8b;
+      background-color: ${bgColor};
+      border: 1px solid ${borderColor};
+      color: ${textColor};
       font-size: 12px;
       text-align: left;
       cursor: default;
@@ -171,18 +189,18 @@ export class TweetProcessor {
     // 根据过滤类型格式化显示文本
     let messageText = ''
     if (filterType === '账户') {
-      messageText = `检测到<strong style="color: #b4b4b4;">${filterValue}</strong>账户疑似自动化运营账户或yapper达人，6551已为您自动屏蔽`
+      messageText = `检测到<strong style="color: ${strongColor};">${filterValue}</strong>账户疑似自动化运营账户或yapper达人，6551已为您自动屏蔽`
     } else if (filterType === '关键词') {
-      messageText = `检测到内容包含敏感关键词<strong style="color: #b4b4b4;">${filterValue}</strong>，6551已为您自动屏蔽`
+      messageText = `检测到内容包含敏感关键词<strong style="color: ${strongColor};">${filterValue}</strong>，6551已为您自动屏蔽`
     } else if (filterType === '用户名') {
-      messageText = `检测到用户名包含敏感词<strong style="color: #b4b4b4;">${filterValue}</strong>，6551已为您自动屏蔽`
+      messageText = `检测到用户名包含敏感词<strong style="color: ${strongColor};">${filterValue}</strong>，6551已为您自动屏蔽`
     }
 
     placeholder.innerHTML = `
       <span>${messageText}</span>
       <div style="display: flex; gap: 8px; flex-shrink: 0; margin-left: 12px;">
         <span class="show-original-tweet" style="color: #409eff; cursor: pointer;">原文</span>
-        <span class="add-to-whitelist" style="color: #ffffff; cursor: pointer;">白名单</span>
+        <span class="add-to-whitelist" style="color: ${btnTextColor}; cursor: pointer;">白名单</span>
       </div>
     `
 
