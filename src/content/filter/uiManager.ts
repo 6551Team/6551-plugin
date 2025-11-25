@@ -34,6 +34,13 @@ export class UIManager {
       return
     }
 
+    // 获取账号名，检查是否在白名单中
+    const username = this.tweetProcessor.getTweetUsername(element)
+    if (username && this.storageManager.isAccountWhitelisted(username)) {
+      // 白名单账号不显示手动上报按钮
+      return
+    }
+
     // 查找时间戳元素
     const timeElement = element.querySelector('time')
     if (!timeElement) {

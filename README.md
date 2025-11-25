@@ -10,6 +10,31 @@
 - **手动管理**：支持手动添加过滤规则和白名单
 - **统计展示**：实时显示已过滤推文数量和详细列表
 
+### 过滤优先级
+
+#### 账号过滤优先级（从高到低）
+
+1. **手动账号白名单**：`manualWhitelistAccounts`
+2. **手动账号屏蔽**：`manualBlockedAccounts`
+3. **WASM 账号白名单**：`yap.wasm.v2` 的 `hasWhiteAccount`
+4. **WASM 账号黑名单**：`yap.wasm.v2` 的 `hasAccount`
+
+#### 关键词和用户名过滤
+
+5. **关键词过滤**
+   - 关键词白名单：`manualWhitelistKeywords`
+   - 系统关键词库：`infofi.json`
+   - 手动屏蔽关键词：`manualBlockedKeywords`
+
+6. **用户名过滤**
+   - 用户名白名单：`manualWhitelistUsernames`
+   - 系统用户名库：`handle.json`
+   - 手动屏蔽用户名：`manualBlockedUsernames`
+
+> **重要说明**：
+> - 账号白名单（手动+WASM）的账号不受关键词和用户名过滤影响
+> - 关键词白名单和用户名白名单中的内容不会被过滤
+
 ## 功能截图
 
 ### 插件弹窗

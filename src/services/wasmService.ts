@@ -5,7 +5,7 @@
 
 import * as ASLoader from '@assemblyscript/loader'
 
-const YAP_WASM_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/yap.wasm'
+const YAP_WASM_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/yap.wasm.v2'
 const INFOFI_JSON_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/infofi.json'
 const HANDLE_JSON_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/handle.json'
 
@@ -122,7 +122,35 @@ export async function initializeWasm(): Promise<void> {
 }
 
 /**
- * 检查账号是否在过滤列表中
+ * 检查账号是否在WASM白名单中
+ * @param account 账号名称
+ * @returns true 表示在白名单中，false 表示不在
+ */
+export function hasWhiteAccount(account: string): boolean {
+  if (!yapWasmInstance) {
+    console.warn('[WASM服务] yap.wasm 尚未加载')
+    return false
+  }
+
+  try {
+    // 转为小写
+    const lowerAccount = account.toLowerCase()
+
+    // 使用 __newString 创建 WASM 字符串
+    const strPtr = yapWasmInstance.__newString(lowerAccount)
+
+    // 调用 WASM 函数
+    const result = yapWasmInstance.hasWhiteAccount(strPtr)
+
+    return result === 1
+  } catch (error) {
+    console.error('[WASM服务] hasWhiteAccount 调用失败:', error, '参数:', account)
+    return false
+  }
+}
+
+/**
+ * 检查账号是否在过滤列表中（WASM黑名单）
  * @param account 账号名称
  * @returns true 表示存在，false 表示不存在
  */

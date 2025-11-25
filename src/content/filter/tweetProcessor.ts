@@ -107,18 +107,29 @@ export class TweetProcessor {
   /**
    * 检查推文是否应该被过滤
    * @returns 返回过滤原因和类型: { type: '账户'|'关键词'|'用户名', value: string }
+   * 优先级: 手动白名单 > 手动屏蔽 > WASM白名单 > WASM黑名单 > 关键词/用户名过滤
+   * 注意: 白名单账号（手动+WASM）不受关键词和用户名过滤影响
    */
   shouldFilterTweet(element: Element): { type: string, value: string } | null {
-    // 检查账号过滤
+    // 获取账号信息
     const username = this.getTweetUsername(element)
-    if (username && this.storageManager.shouldFilterAccount(username)) {
-      // 保存显示名称
-      this.getUserDisplayName(element, username)
-      return { type: '账户', value: username }
-    }
 
-    // 检查用户名（显示名称）过滤
     if (username) {
+      // 检查是否在账号白名单中（手动白名单 + WASM白名单）
+      const isInAccountWhitelist = this.storageManager.isAccountWhitelisted(username)
+      if (isInAccountWhitelist) {
+        // 账号在白名单中，不进行任何过滤（包括关键词和用户名）
+        return null
+      }
+
+      // 检查账号过滤（包括手动屏蔽和WASM黑名单）
+      if (this.storageManager.shouldFilterAccount(username)) {
+        // 保存显示名称
+        this.getUserDisplayName(element, username)
+        return { type: '账户', value: username }
+      }
+
+      // 检查用户名（显示名称）过滤
       const displayName = this.getUserDisplayName(element, username)
       const matchedUsername = this.storageManager.shouldFilterUsername(displayName)
       if (matchedUsername) {

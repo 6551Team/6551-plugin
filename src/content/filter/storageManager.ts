@@ -1,4 +1,4 @@
-import { hasAccount, hasWord, hasHandle, getAccountCount, getWordCount, getHandleCount, isWasmLoaded } from '../../services/wasmService'
+import { hasAccount, hasWhiteAccount, hasWord, hasHandle, getAccountCount, getWordCount, getHandleCount, isWasmLoaded } from '../../services/wasmService'
 
 // 过滤项类型
 interface FilterItem {
@@ -31,8 +31,8 @@ export class StorageManager {
   public keywordFilterEnabled = true
   // 用户名过滤开关
   public usernameFilterEnabled = true
-  // 是否显示屏蔽数据UI
-  public showBlockUI = true
+  // 是否显示屏蔽数据UI（清爽模式默认开启，即默认隐藏右侧UI）
+  public showBlockUI = false
   // 总拦截数量
   public totalBlockCount = 0
 
@@ -119,7 +119,7 @@ export class StorageManager {
       this.accountFilterEnabled = result.accountFilterEnabled !== undefined ? result.accountFilterEnabled : true
       this.keywordFilterEnabled = result.keywordFilterEnabled !== undefined ? result.keywordFilterEnabled : true
       this.usernameFilterEnabled = result.usernameFilterEnabled !== undefined ? result.usernameFilterEnabled : true
-      this.showBlockUI = result.showBlockUI !== undefined ? result.showBlockUI : true
+      this.showBlockUI = result.showBlockUI !== undefined ? result.showBlockUI : false
       this.totalBlockCount = result.totalBlockCount || 0
       console.log(`[推文过滤器] 总拦截数量: ${this.totalBlockCount}`)
 
@@ -256,7 +256,29 @@ export class StorageManager {
   }
 
   /**
+   * 检查账号是否在白名单中（手动白名单 + WASM白名单）
+   */
+  isAccountWhitelisted(username: string): boolean {
+    const cleanUsername = username.startsWith('@') ? username.slice(1) : username
+
+    // 检查手动白名单
+    const isManualWhitelisted = this.manualWhitelistAccounts.includes(username) ||
+                               this.manualWhitelistAccounts.includes('@' + username)
+    if (isManualWhitelisted) {
+      return true
+    }
+
+    // 检查WASM白名单
+    if (isWasmLoaded() && hasWhiteAccount(cleanUsername)) {
+      return true
+    }
+
+    return false
+  }
+
+  /**
    * 检查账号是否应该被过滤
+   * 优先级: 手动白名单 > 手动屏蔽 > WASM白名单 > WASM黑名单
    */
   shouldFilterAccount(username: string): boolean {
     // 检查账号过滤是否启用
@@ -264,22 +286,33 @@ export class StorageManager {
       return false
     }
 
-    // 检查是否在白名单中(优先级最高)
-    const isWhitelisted = this.manualWhitelistAccounts.includes(username) ||
-                         this.manualWhitelistAccounts.includes('@' + username)
-    if (isWhitelisted) {
+    const cleanUsername = username.startsWith('@') ? username.slice(1) : username
+
+    // 1. 检查手动白名单（优先级最高）
+    const isManualWhitelisted = this.manualWhitelistAccounts.includes(username) ||
+                               this.manualWhitelistAccounts.includes('@' + username)
+    if (isManualWhitelisted) {
       return false
     }
 
-    // 检查WASM过滤列表
-    const cleanUsername = username.startsWith('@') ? username.slice(1) : username
+    // 2. 检查手动屏蔽列表
+    const isManualBlocked = this.manualBlockedAccounts.includes(username) ||
+                           this.manualBlockedAccounts.includes('@' + username)
+    if (isManualBlocked) {
+      return true
+    }
+
+    // 3. 检查WASM白名单
+    if (isWasmLoaded() && hasWhiteAccount(cleanUsername)) {
+      return false
+    }
+
+    // 4. 检查WASM黑名单
     if (isWasmLoaded() && hasAccount(cleanUsername)) {
       return true
     }
 
-    // 检查手动上报列表
-    return this.manualBlockedAccounts.includes(username) ||
-           this.manualBlockedAccounts.includes('@' + username)
+    return false
   }
 
   /**
