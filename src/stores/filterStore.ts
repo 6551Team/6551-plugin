@@ -14,7 +14,7 @@ export const useFilterStore = defineStore('filter', () => {
     accountFilterEnabled: true, // 账号过滤开关
     keywordFilterEnabled: true, // 关键词过滤开关
     usernameFilterEnabled: true, // 用户名过滤开关
-    showBlockUI: true, // 是否显示屏蔽数据UI（右侧面板和占位符）
+    showBlockUI: false, // 是否显示屏蔽数据UI（清爽模式默认开启）
     wasmAccountCount: 0, // WASM账号数量
     wasmKeywordCount: 0, // WASM关键词数量
   })
@@ -38,7 +38,7 @@ export const useFilterStore = defineStore('filter', () => {
       state.accountFilterEnabled = result.accountFilterEnabled !== undefined ? result.accountFilterEnabled : true
       state.keywordFilterEnabled = result.keywordFilterEnabled !== undefined ? result.keywordFilterEnabled : true
       state.usernameFilterEnabled = result.usernameFilterEnabled !== undefined ? result.usernameFilterEnabled : true
-      state.showBlockUI = result.showBlockUI !== undefined ? result.showBlockUI : true
+      state.showBlockUI = result.showBlockUI !== undefined ? result.showBlockUI : false
       state.wasmAccountCount = result.wasmAccountCount || 0
       state.wasmKeywordCount = result.wasmKeywordCount || 0
 

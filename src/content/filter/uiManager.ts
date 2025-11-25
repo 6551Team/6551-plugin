@@ -166,15 +166,19 @@ export class UIManager {
    * 检测Twitter主题（亮色/暗色）
    */
   private detectTheme(): 'light' | 'dark' {
-    // 检查 html 元素的 color-scheme 样式
-    const htmlStyle = window.getComputedStyle(document.documentElement)
-    const colorScheme = htmlStyle.colorScheme || htmlStyle.getPropertyValue('color-scheme')
+    try {
+      const htmlStyle = window.getComputedStyle(document.documentElement)
+      const colorScheme = htmlStyle.colorScheme || htmlStyle.getPropertyValue('color-scheme')
 
-    if (colorScheme && colorScheme.includes('dark')) {
-      return 'dark'
+      if (colorScheme && colorScheme.includes('light')) {
+        return 'light'
+      }
+    } catch (error) {
+      console.log('[主题检测] 检测失败，使用默认暗色主题')
     }
 
-    return 'light'
+    // 默认使用暗色主题
+    return 'dark'
   }
 
   /**
