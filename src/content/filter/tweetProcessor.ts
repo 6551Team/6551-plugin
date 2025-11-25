@@ -107,18 +107,29 @@ export class TweetProcessor {
   /**
    * 检查推文是否应该被过滤
    * @returns 返回过滤原因和类型: { type: '账户'|'关键词'|'用户名', value: string }
+   * 优先级: 手动白名单 > 手动屏蔽 > WASM白名单 > WASM黑名单 > 关键词/用户名过滤
+   * 注意: 白名单账号（手动+WASM）不受关键词和用户名过滤影响
    */
   shouldFilterTweet(element: Element): { type: string, value: string } | null {
-    // 检查账号过滤
+    // 获取账号信息
     const username = this.getTweetUsername(element)
-    if (username && this.storageManager.shouldFilterAccount(username)) {
-      // 保存显示名称
-      this.getUserDisplayName(element, username)
-      return { type: '账户', value: username }
-    }
 
-    // 检查用户名（显示名称）过滤
     if (username) {
+      // 检查是否在账号白名单中（手动白名单 + WASM白名单）
+      const isInAccountWhitelist = this.storageManager.isAccountWhitelisted(username)
+      if (isInAccountWhitelist) {
+        // 账号在白名单中，不进行任何过滤（包括关键词和用户名）
+        return null
+      }
+
+      // 检查账号过滤（包括手动屏蔽和WASM黑名单）
+      if (this.storageManager.shouldFilterAccount(username)) {
+        // 保存显示名称
+        this.getUserDisplayName(element, username)
+        return { type: '账户', value: username }
+      }
+
+      // 检查用户名（显示名称）过滤
       const displayName = this.getUserDisplayName(element, username)
       const matchedUsername = this.storageManager.shouldFilterUsername(displayName)
       if (matchedUsername) {
@@ -137,18 +148,36 @@ export class TweetProcessor {
   }
 
   /**
+   * 检测主题
+   */
+  private detectTheme(): 'light' | 'dark' {
+    const htmlStyle = window.getComputedStyle(document.documentElement)
+    const colorScheme = htmlStyle.colorScheme || htmlStyle.getPropertyValue('color-scheme')
+    return colorScheme && colorScheme.includes('dark') ? 'dark' : 'light'
+  }
+
+  /**
    * 创建占位块元素
    */
   private createPlaceholder(filterType: string, filterValue: string): HTMLElement {
     const placeholder = document.createElement('div')
     placeholder.className = 'tweet-filter-placeholder'
     placeholder.setAttribute('data-filter-placeholder', 'true')
+
+    // 根据主题设置颜色
+    const theme = this.detectTheme()
+    const bgColor = theme === 'dark' ? '#1e1e1e' : '#f7f9f9'
+    const borderColor = theme === 'dark' ? '#2f2f2f' : '#eff3f4'
+    const textColor = theme === 'dark' ? '#8b8b8b' : '#536471'
+    const strongColor = theme === 'dark' ? '#b4b4b4' : '#0f1419'
+    const btnTextColor = theme === 'dark' ? '#ffffff' : '#0f1419'
+
     placeholder.style.cssText = `
       padding: 8px 12px;
       margin: 4px 4px;
-      background-color: #1e1e1e;
-      border: 1px solid #2f2f2f;
-      color: #8b8b8b;
+      background-color: ${bgColor};
+      border: 1px solid ${borderColor};
+      color: ${textColor};
       font-size: 12px;
       text-align: left;
       cursor: default;
@@ -160,19 +189,22 @@ export class TweetProcessor {
     // 根据过滤类型格式化显示文本
     let messageText = ''
     if (filterType === '账户') {
-      messageText = `检测到<strong style="color: #b4b4b4;">${filterValue}</strong>账户疑似自动化运营账户或yapper达人，6551已为您自动屏蔽`
+      messageText = `检测到<strong style="color: ${strongColor};">${filterValue}</strong>账户疑似自动化运营账户或yapper达人，6551已为您自动屏蔽`
     } else if (filterType === '关键词') {
-      messageText = `检测到内容包含敏感关键词<strong style="color: #b4b4b4;">${filterValue}</strong>，6551已为您自动屏蔽`
+      messageText = `检测到内容包含敏感关键词<strong style="color: ${strongColor};">${filterValue}</strong>，6551已为您自动屏蔽`
     } else if (filterType === '用户名') {
-      messageText = `检测到用户名包含敏感词<strong style="color: #b4b4b4;">${filterValue}</strong>，6551已为您自动屏蔽`
+      messageText = `检测到用户名包含敏感词<strong style="color: ${strongColor};">${filterValue}</strong>，6551已为您自动屏蔽`
     }
 
     placeholder.innerHTML = `
       <span>${messageText}</span>
-      <span class="show-original-tweet" style="color: #409eff; cursor: pointer; margin-left: 12px; flex-shrink: 0;">显示原文</span>
+      <div style="display: flex; gap: 8px; flex-shrink: 0; margin-left: 12px;">
+        <span class="show-original-tweet" style="color: #409eff; cursor: pointer;">原文</span>
+        <span class="add-to-whitelist" style="color: ${btnTextColor}; cursor: pointer;">白名单</span>
+      </div>
     `
 
-    // 添加点击事件
+    // 添加"显示原文"点击事件
     const showBtn = placeholder.querySelector('.show-original-tweet')
     if (showBtn) {
       showBtn.addEventListener('click', () => {
@@ -182,6 +214,54 @@ export class TweetProcessor {
           const htmlElement = hiddenTweet as HTMLElement
           htmlElement.style.display = ''
           placeholder.remove()
+        }
+      })
+    }
+
+    // 添加"设为白名单"点击事件
+    const whitelistBtn = placeholder.querySelector('.add-to-whitelist')
+    if (whitelistBtn) {
+      whitelistBtn.addEventListener('click', async () => {
+        try {
+          if (filterType === '账户') {
+            // 账户类型：添加到账户白名单
+            const result = await chrome.storage.local.get(['manualWhitelistAccounts'])
+            const whitelist = result.manualWhitelistAccounts || []
+            if (!whitelist.includes(filterValue)) {
+              whitelist.push(filterValue)
+              await chrome.storage.local.set({ manualWhitelistAccounts: whitelist })
+            }
+            alert(`已将账户 "${filterValue}" 加入白名单`)
+          } else if (filterType === '关键词') {
+            // 关键词类型：添加到关键词白名单
+            const result = await chrome.storage.local.get(['manualWhitelistKeywords'])
+            const whitelist = result.manualWhitelistKeywords || []
+            if (!whitelist.includes(filterValue)) {
+              whitelist.push(filterValue)
+              await chrome.storage.local.set({ manualWhitelistKeywords: whitelist })
+            }
+            alert(`已将关键词 "${filterValue}" 加入白名单`)
+          } else if (filterType === '用户名') {
+            // 用户名类型：添加到用户名白名单
+            const result = await chrome.storage.local.get(['manualWhitelistUsernames'])
+            const whitelist = result.manualWhitelistUsernames || []
+            if (!whitelist.includes(filterValue)) {
+              whitelist.push(filterValue)
+              await chrome.storage.local.set({ manualWhitelistUsernames: whitelist })
+            }
+            alert(`已将用户名 "${filterValue}" 加入白名单`)
+          }
+
+          // 显示原文并移除占位符
+          const hiddenTweet = placeholder.previousElementSibling
+          if (hiddenTweet && hiddenTweet.getAttribute('data-filtered-user')) {
+            const htmlElement = hiddenTweet as HTMLElement
+            htmlElement.style.display = ''
+            placeholder.remove()
+          }
+        } catch (error) {
+          alert('加入白名单失败')
+          console.error('[推文过滤器] 加入白名单失败:', error)
         }
       })
     }
@@ -207,7 +287,7 @@ export class TweetProcessor {
       htmlElement.setAttribute('data-filtered-user', filterValue)
       htmlElement.setAttribute('data-filtered-type', filterType)
 
-      // 在推文后面插入占位块
+      // 始终显示占位块（清爽模式只隐藏右侧UI）
       const placeholder = this.createPlaceholder(filterType, filterValue)
       htmlElement.after(placeholder)
 

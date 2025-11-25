@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, onMounted } from 'vue'
 import { useFilterStore } from '../stores/filterStore'
-import { Refresh, Setting } from '@element-plus/icons-vue'
+import { Refresh, Setting, View } from '@element-plus/icons-vue'
 
 const filterStore = useFilterStore()
 
@@ -29,6 +29,12 @@ async function toggleKeywordFilter() {
 // 切换用户名过滤
 async function toggleUsernameFilter() {
   console.log('[推文过滤器] 用户名过滤切换为:', filterStore.state.usernameFilterEnabled)
+  await filterStore.saveToStorage()
+}
+
+// 切换显示屏蔽数据
+async function toggleShowBlockUI() {
+  console.log('[推文过滤器] 显示屏蔽数据切换为:', filterStore.state.showBlockUI)
   await filterStore.saveToStorage()
 }
 
@@ -109,6 +115,19 @@ onMounted(async () => {
               <span class="text-sm text-gray-700">用户名过滤</span>
             </div>
             <el-switch v-model="filterStore.state.usernameFilterEnabled" @change="toggleUsernameFilter" />
+          </div>
+
+          <el-divider style="margin: 8px 0" />
+
+          <!-- 清爽模式 -->
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <el-icon :size="20" color="#909399">
+                <View />
+              </el-icon>
+              <span class="text-sm text-gray-700">清爽模式<span class="text-xs text-gray-500">(需刷新页面)</span></span>
+            </div>
+            <el-switch v-model="filterStore.state.showBlockUI" @change="toggleShowBlockUI" :active-value="false" :inactive-value="true" />
           </div>
         </div>
       </el-card>

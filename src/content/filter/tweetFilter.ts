@@ -72,7 +72,12 @@ export class TweetFilter {
       this.processTweet(tweet, forceUpdate)
     })
 
-    this.uiManager.updateFilterUI()
+    // 根据showBlockUI设置决定是否显示右侧UI
+    if (this.storageManager.showBlockUI) {
+      this.uiManager.updateFilterUI()
+    } else {
+      this.uiManager.hideFilterUI()
+    }
   }
 
   /**
@@ -116,7 +121,12 @@ export class TweetFilter {
 
       if (hasNewTweets) {
         this.debounce(() => {
-          this.uiManager.updateFilterUI()
+          // 根据showBlockUI设置决定是否显示右侧UI
+          if (this.storageManager.showBlockUI) {
+            this.uiManager.updateFilterUI()
+          } else {
+            this.uiManager.hideFilterUI()
+          }
         }, 300)
       }
     })

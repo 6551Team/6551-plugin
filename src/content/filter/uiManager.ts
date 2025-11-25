@@ -85,6 +85,16 @@ export class UIManager {
   }
 
   /**
+   * 隐藏过滤器 UI
+   */
+  hideFilterUI(): void {
+    if (this.filterUI) {
+      this.filterUI.remove()
+      this.filterUI = null
+    }
+  }
+
+  /**
    * 创建或更新过滤器 UI
    */
   updateFilterUI(): void {
@@ -94,6 +104,11 @@ export class UIManager {
 
     const filteredCount = this.tweetProcessor.getFilteredCount()
     const filteredUsers = this.tweetProcessor.getFilteredUsers()
+
+    // 获取主题颜色
+    const theme = this.detectTheme()
+    const textColor = theme === 'dark' ? '#71767b' : '#536471'
+    const borderColor = theme === 'dark' ? '#2f3336' : '#e1e8ed'
 
     const userListHtml = Array.from(filteredUsers.entries())
       .sort((a, b) => b[1].count - a[1].count)
@@ -112,7 +127,7 @@ export class UIManager {
         }
 
         return `
-          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; color: #536471; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; color: ${textColor}; gap: 8px;">
             <span class="filter-feedback-btn" data-username="${value}" data-filter-type="${type}"
                   style="cursor: pointer; font-size: 16px; flex-shrink: 0;"
                   title="反馈误报">⚠️</span>
@@ -130,12 +145,12 @@ export class UIManager {
       <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
         <input type="checkbox" id="filter-toggle" ${this.storageManager.isFilterEnabled ? 'checked' : ''}
                style="width: 16px; height: 16px; cursor: pointer;">
-        <label for="filter-toggle" style="cursor: pointer; user-select: none; color: #536471;">
+        <label for="filter-toggle" style="cursor: pointer; user-select: none; color: ${textColor};">
           已过滤 <span style="font-weight: bold; color: #1d9bf0;">${filteredCount}</span> 条推文/回复
         </label>
       </div>
       ${filteredCount > 0 ? `
-        <div style="border-top: 1px solid #e1e8ed; padding-top: 8px; max-height: 300px; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none;">
+        <div style="border-top: 1px solid ${borderColor}; padding-top: 8px; max-height: 300px; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none;">
           ${userListHtml}
         </div>
         <style>
@@ -148,20 +163,42 @@ export class UIManager {
   }
 
   /**
+   * 检测Twitter主题（亮色/暗色）
+   */
+  private detectTheme(): 'light' | 'dark' {
+    // 检查 html 元素的 color-scheme 样式
+    const htmlStyle = window.getComputedStyle(document.documentElement)
+    const colorScheme = htmlStyle.colorScheme || htmlStyle.getPropertyValue('color-scheme')
+
+    if (colorScheme && colorScheme.includes('dark')) {
+      return 'dark'
+    }
+
+    return 'light'
+  }
+
+  /**
    * 创建过滤器UI
    */
   private createFilterUI(): HTMLElement {
     const filterUI = document.createElement('div')
     filterUI.id = 'filter-status-ui'
+
+    // 根据主题设置颜色
+    const theme = this.detectTheme()
+    const bgColor = theme === 'dark' ? '#000000' : '#ffffff'
+    const borderColor = theme === 'dark' ? '#2f3336' : '#e1e8ed'
+    const shadowColor = theme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.1)'
+
     filterUI.style.cssText = `
       position: fixed;
       top: 60px;
       right: 20px;
-      background: white;
-      border: 1px solid #e1e8ed;
+      background: ${bgColor};
+      border: 1px solid ${borderColor};
       border-radius: 8px;
       padding: 12px 16px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      box-shadow: 0 2px 8px ${shadowColor};
       z-index: 10000;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 14px;
@@ -216,17 +253,19 @@ export class UIManager {
               alert('加入白名单失败')
             }
           } else if (filterType === '用户名') {
-            // 用户名过滤：从过滤列表中移除
+            // 用户名过滤：加入白名单
             try {
-              const result = await chrome.storage.local.get(['manualBlockedUsernames'])
-              const blockedList = result.manualBlockedUsernames || []
-              const newList = blockedList.filter((item: string) => item !== filterValue)
-              await chrome.storage.local.set({ manualBlockedUsernames: newList })
-              alert(`已将用户名 "${filterValue}" 从过滤列表中移除`)
+              const result = await chrome.storage.local.get(['manualWhitelistUsernames'])
+              const whitelist = result.manualWhitelistUsernames || []
+              if (!whitelist.includes(filterValue)) {
+                whitelist.push(filterValue)
+                await chrome.storage.local.set({ manualWhitelistUsernames: whitelist })
+              }
+              alert(`已将用户名 "${filterValue}" 加入白名单`)
               this.tweetProcessor.showUserTweets(filterValue)
               this.updateFilterUI()
             } catch (error) {
-              alert('移除失败')
+              alert('加入白名单失败')
             }
           }
         }
