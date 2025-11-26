@@ -46,25 +46,17 @@ export class UIManager {
     }
 
     // 创建上报按钮
-    const reportBtn = document.createElement('span')
+    const reportBtn = document.createElement('img')
     reportBtn.className = 'manual-report-btn'
-    reportBtn.innerHTML = '🚫'
+    reportBtn.src = chrome.runtime.getURL('black.png')
     reportBtn.style.cssText = `
       cursor: pointer;
-      font-size: 14px;
+      width: 16px;
+      height: 16px;
       margin-left: 8px;
-      opacity: 0.6;
-      transition: opacity 0.2s;
+      vertical-align: middle;
     `
     reportBtn.title = '手动上报此账号(6551提供)'
-
-    reportBtn.addEventListener('mouseenter', () => {
-      reportBtn.style.opacity = '1'
-    })
-
-    reportBtn.addEventListener('mouseleave', () => {
-      reportBtn.style.opacity = '0.6'
-    })
 
     reportBtn.addEventListener('click', async (e) => {
       e.stopPropagation()

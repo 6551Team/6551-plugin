@@ -1,4 +1,5 @@
 import type { StorageManager } from './storageManager'
+import type { ReportManager } from './reportManager'
 
 /**
  * 推文处理类
@@ -11,9 +12,12 @@ export class TweetProcessor {
   private userDisplayNames = new Map<string, string>()
   // 存储管理器引用
   private storageManager: StorageManager
+  // 上报管理器引用
+  private reportManager: ReportManager
 
-  constructor(storageManager: StorageManager) {
+  constructor(storageManager: StorageManager, reportManager: ReportManager) {
     this.storageManager = storageManager
+    this.reportManager = reportManager
   }
 
   /**
@@ -209,8 +213,7 @@ export class TweetProcessor {
     placeholder.innerHTML = `
       <span>${messageText}</span>
       <div style="display: flex; gap: 8px; flex-shrink: 0; margin-left: 12px;">
-        <span class="show-original-tweet" style="color: #409eff; cursor: pointer;">原文</span>
-        <span class="add-to-whitelist" style="color: ${btnTextColor}; cursor: pointer;">白名单</span>
+        <span class="show-original-tweet" style="color: #409eff; cursor: pointer;">显示原文</span>
       </div>
     `
 
@@ -223,55 +226,72 @@ export class TweetProcessor {
         if (hiddenTweet && hiddenTweet.getAttribute('data-filtered-user')) {
           const htmlElement = hiddenTweet as HTMLElement
           htmlElement.style.display = ''
+
+          // 在时间戳旁边添加"设为白名单"按钮
+          const timeElement = htmlElement.querySelector('time')
+          if (timeElement) {
+            const parentElement = timeElement.parentElement?.parentElement
+            if (parentElement) {
+              const whitelistBtn = document.createElement('img')
+              whitelistBtn.className = 'whitelist-btn'
+              whitelistBtn.src = chrome.runtime.getURL('white.png')
+
+              whitelistBtn.style.cssText = `
+                cursor: pointer;
+                width: 16px;
+                height: 16px;
+                margin-left: 8px;
+                vertical-align: middle;
+              `
+              whitelistBtn.title = '设为白名单(6551提供)'
+
+              whitelistBtn.addEventListener('click', async (e) => {
+                e.stopPropagation()
+                e.preventDefault()
+
+                try {
+                  if (filterType === '账户') {
+                    // 账户类型：发送误报反馈到 background
+                    const result = await this.reportManager.handleFeedbackMisreport(filterValue)
+                    if (result.success) {
+                      alert(`已将账户 "${filterValue}" 加入白名单`)
+                    } else {
+                      alert(`反馈失败: ${result.error}`)
+                      return
+                    }
+                  } else if (filterType === '关键词') {
+                    // 关键词类型：添加到关键词白名单
+                    const result = await chrome.storage.local.get(['manualWhitelistKeywords'])
+                    const whitelist = result.manualWhitelistKeywords || []
+                    if (!whitelist.includes(filterValue)) {
+                      whitelist.push(filterValue)
+                      await chrome.storage.local.set({ manualWhitelistKeywords: whitelist })
+                    }
+                    alert(`已将关键词 "${filterValue}" 加入白名单`)
+                  } else if (filterType === '用户名') {
+                    // 用户名类型：添加到用户名白名单
+                    const result = await chrome.storage.local.get(['manualWhitelistUsernames'])
+                    const whitelist = result.manualWhitelistUsernames || []
+                    if (!whitelist.includes(filterValue)) {
+                      whitelist.push(filterValue)
+                      await chrome.storage.local.set({ manualWhitelistUsernames: whitelist })
+                    }
+                    alert(`已将用户名 "${filterValue}" 加入白名单`)
+                  }
+
+                  // 移除白名单按钮
+                  whitelistBtn.remove()
+                } catch (error) {
+                  alert('加入白名单失败')
+                  console.error('[推文过滤器] 加入白名单失败:', error)
+                }
+              })
+
+              parentElement.appendChild(whitelistBtn)
+            }
+          }
+
           placeholder.remove()
-        }
-      })
-    }
-
-    // 添加"设为白名单"点击事件
-    const whitelistBtn = placeholder.querySelector('.add-to-whitelist')
-    if (whitelistBtn) {
-      whitelistBtn.addEventListener('click', async () => {
-        try {
-          if (filterType === '账户') {
-            // 账户类型：添加到账户白名单
-            const result = await chrome.storage.local.get(['manualWhitelistAccounts'])
-            const whitelist = result.manualWhitelistAccounts || []
-            if (!whitelist.includes(filterValue)) {
-              whitelist.push(filterValue)
-              await chrome.storage.local.set({ manualWhitelistAccounts: whitelist })
-            }
-            alert(`已将账户 "${filterValue}" 加入白名单`)
-          } else if (filterType === '关键词') {
-            // 关键词类型：添加到关键词白名单
-            const result = await chrome.storage.local.get(['manualWhitelistKeywords'])
-            const whitelist = result.manualWhitelistKeywords || []
-            if (!whitelist.includes(filterValue)) {
-              whitelist.push(filterValue)
-              await chrome.storage.local.set({ manualWhitelistKeywords: whitelist })
-            }
-            alert(`已将关键词 "${filterValue}" 加入白名单`)
-          } else if (filterType === '用户名') {
-            // 用户名类型：添加到用户名白名单
-            const result = await chrome.storage.local.get(['manualWhitelistUsernames'])
-            const whitelist = result.manualWhitelistUsernames || []
-            if (!whitelist.includes(filterValue)) {
-              whitelist.push(filterValue)
-              await chrome.storage.local.set({ manualWhitelistUsernames: whitelist })
-            }
-            alert(`已将用户名 "${filterValue}" 加入白名单`)
-          }
-
-          // 显示原文并移除占位符
-          const hiddenTweet = placeholder.previousElementSibling
-          if (hiddenTweet && hiddenTweet.getAttribute('data-filtered-user')) {
-            const htmlElement = hiddenTweet as HTMLElement
-            htmlElement.style.display = ''
-            placeholder.remove()
-          }
-        } catch (error) {
-          alert('加入白名单失败')
-          console.error('[推文过滤器] 加入白名单失败:', error)
         }
       })
     }
