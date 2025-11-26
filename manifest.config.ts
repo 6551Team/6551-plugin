@@ -34,4 +34,10 @@ export default defineManifest({
   content_security_policy: {
     extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
   },
+  web_accessible_resources: [
+    {
+      resources: ['white.png', 'black.png'],
+      matches: ['https://twitter.com/*', 'https://x.com/*'],
+    },
+  ],
 })

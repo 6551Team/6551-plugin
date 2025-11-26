@@ -17,8 +17,8 @@ export class TweetFilter {
 
   constructor() {
     this.storageManager = new StorageManager()
-    this.tweetProcessor = new TweetProcessor(this.storageManager)
     this.reportManager = new ReportManager()
+    this.tweetProcessor = new TweetProcessor(this.storageManager, this.reportManager)
     this.uiManager = new UIManager(this.tweetProcessor, this.reportManager, this.storageManager)
 
     // 设置UI更新回调
