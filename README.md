@@ -14,10 +14,10 @@
 
 #### 账号过滤优先级（从高到低）
 
-1. **手动账号白名单**：`manualWhitelistAccounts`
-2. **手动账号屏蔽**：`manualBlockedAccounts`
-3. **WASM 账号白名单**：`yap.wasm.v2` 的 `hasWhiteAccount`
-4. **WASM 账号黑名单**：`yap.wasm.v2` 的 `hasAccount`
+1. **手动账号白名单**：`manualWhitelistAccounts` - 最高优先级，永不过滤
+2. **手动账号屏蔽**：`manualBlockedAccounts` - 即使在系统白名单中也会被屏蔽
+3. **WASM 账号白名单**：`yap.wasm.v2` 的 `hasWhiteAccount` - 系统级白名单
+4. **WASM 账号黑名单**：`yap.wasm.v2` 的 `hasAccount` - 系统级黑名单
 
 #### 关键词和用户名过滤
 
@@ -32,7 +32,8 @@
    - 手动屏蔽用户名：`manualBlockedUsernames`
 
 > **重要说明**：
-> - 账号白名单（手动+WASM）的账号不受关键词和用户名过滤影响
+> - **所有白名单账号**（手动+WASM）不受关键词和用户名过滤影响
+> - 手动屏蔽优先级高于 WASM 白名单，可以屏蔽系统白名单中的账号
 > - 关键词白名单和用户名白名单中的内容不会被过滤
 
 ## 功能截图
