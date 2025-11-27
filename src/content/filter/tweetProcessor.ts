@@ -112,25 +112,29 @@ export class TweetProcessor {
    * 检查推文是否应该被过滤
    * @returns 返回过滤原因和类型: { type: '账户'|'关键词'|'用户名', value: string }
    * 优先级: 手动白名单 > 手动屏蔽 > WASM白名单 > WASM黑名单 > 关键词/用户名过滤
-   * 注意: 白名单账号（手动+WASM）不受关键词和用户名过滤影响
+   * 注意: 所有白名单账号（手动+WASM）不受关键词和用户名过滤影响
    */
   shouldFilterTweet(element: Element): { type: string, value: string } | null {
     // 获取账号信息
     const username = this.getTweetUsername(element)
 
     if (username) {
-      // 检查是否在账号白名单中（手动白名单 + WASM白名单）
-      const isInAccountWhitelist = this.storageManager.isAccountWhitelisted(username)
-      if (isInAccountWhitelist) {
-        // 账号在白名单中，不进行任何过滤（包括关键词和用户名）
-        return null
-      }
+      // 检查账号过滤，shouldFilterAccount 内部已实现正确优先级：
+      // 手动白名单 > 手动屏蔽 > WASM白名单 > WASM黑名单
+      const shouldFilter = this.storageManager.shouldFilterAccount(username)
 
-      // 检查账号过滤（包括手动屏蔽和WASM黑名单）
-      if (this.storageManager.shouldFilterAccount(username)) {
+      // 如果应该过滤，直接返回
+      if (shouldFilter) {
         // 保存显示名称
         this.getUserDisplayName(element, username)
         return { type: '账户', value: username }
+      }
+
+      // 检查是否在任意白名单中（手动白名单 + WASM白名单），白名单账号豁免关键词和用户名过滤
+      const isInWhitelist = this.storageManager.isAccountWhitelisted(username)
+      if (isInWhitelist) {
+        // 白名单账号不受关键词和用户名过滤影响
+        return null
       }
 
       // 检查用户名（显示名称）过滤
