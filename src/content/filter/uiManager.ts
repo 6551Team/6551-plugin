@@ -55,6 +55,7 @@ export class UIManager {
       height: 16px;
       margin-left: 8px;
       vertical-align: middle;
+      display: inline-block;
     `
     reportBtn.title = '手动上报此账号(6551提供)'
 
