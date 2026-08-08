@@ -21,6 +21,34 @@ export class TweetProcessor {
   }
 
   /**
+   * 获取包含 emoji 图片 alt 文本的可见文本
+   */
+  private getElementText(element: Element): string {
+    const parts: string[] = []
+
+    const collectText = (node: Node): void => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        parts.push(node.textContent || '')
+        return
+      }
+
+      if (!(node instanceof Element)) {
+        return
+      }
+
+      if (node instanceof HTMLImageElement) {
+        parts.push(node.alt || node.getAttribute('aria-label') || node.title || '')
+        return
+      }
+
+      node.childNodes.forEach(collectText)
+    }
+
+    collectText(element)
+    return parts.join('').trim()
+  }
+
+  /**
    * 获取用户的显示名称
    */
   getUserDisplayName(element: Element, username: string): string {
@@ -39,7 +67,7 @@ export class TweetProcessor {
         if (parent) {
           const spans = parent.querySelectorAll('span')
           for (const span of Array.from(spans)) {
-            const text = span.textContent?.trim()
+            const text = this.getElementText(span)
             // 过滤掉无效的显示名称：空字符串、@开头、用户名本身、单个特殊字符（如·）
             if (text &&
                 !text.startsWith('@') &&
@@ -53,7 +81,7 @@ export class TweetProcessor {
 
           const firstSpan = parent.querySelector('span')
           if (firstSpan) {
-            const displayName = firstSpan.textContent?.trim()
+            const displayName = this.getElementText(firstSpan)
             if (displayName &&
                 displayName !== `@${username}` &&
                 displayName.length > 1 &&
@@ -95,7 +123,7 @@ export class TweetProcessor {
     // 获取推文的文本内容
     const tweetTextElement = element.querySelector('[data-testid="tweetText"]')
     if (tweetTextElement) {
-      return tweetTextElement.textContent || ''
+      return this.getElementText(tweetTextElement)
     }
     return ''
   }
