@@ -18,7 +18,7 @@ export class TweetFilter {
   constructor() {
     this.storageManager = new StorageManager()
     this.reportManager = new ReportManager()
-    this.tweetProcessor = new TweetProcessor(this.storageManager, this.reportManager)
+    this.tweetProcessor = new TweetProcessor(this.storageManager)
     this.uiManager = new UIManager(this.tweetProcessor, this.reportManager, this.storageManager)
 
     // 设置UI更新回调
@@ -58,8 +58,24 @@ export class TweetFilter {
    * 启动过滤器
    */
   private start(): void {
+    this.uiManager.initialize()
     this.scanAndFilterTweets()
     this.observeDOMChanges()
+  }
+
+  /**
+   * 从插件弹窗打开 X 页面内的过滤控制中心。
+   */
+  openControlCenter(): void {
+    this.uiManager.openControlCenter()
+  }
+
+  /**
+   * 在线规则更新后重新检查当前页面，包括推文详情页里的回复。
+   */
+  refreshSystemRules(): void {
+    this.tweetProcessor.clearProcessed()
+    this.scanAndFilterTweets(true)
   }
 
   /**
@@ -71,6 +87,8 @@ export class TweetFilter {
     tweets.forEach(tweet => {
       this.processTweet(tweet, forceUpdate)
     })
+
+    this.tweetProcessor.refreshPresentation()
 
     // 根据showBlockUI设置决定是否显示右侧UI
     if (this.storageManager.showBlockUI) {
@@ -121,6 +139,8 @@ export class TweetFilter {
 
       if (hasNewTweets) {
         this.debounce(() => {
+          this.tweetProcessor.refreshPresentation()
+
           // 根据showBlockUI设置决定是否显示右侧UI
           if (this.storageManager.showBlockUI) {
             this.uiManager.updateFilterUI()
@@ -156,6 +176,8 @@ export class TweetFilter {
    * 销毁过滤器
    */
   destroy(): void {
+    this.uiManager.destroy()
+
     if (this.observer) {
       this.observer.disconnect()
       this.observer = null

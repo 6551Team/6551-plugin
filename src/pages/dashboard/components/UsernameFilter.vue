@@ -304,7 +304,7 @@ onMounted(() => {
     <!-- 智能识别提示 -->
     <div class="px-6 py-3 mb-4 bg-[#0d0d0d] border-b border-[#2a2a2a]">
       <p class="text-sm text-gray-400">
-        6551智能识别 <span class="text-[#409eff] font-semibold">{{ state.systemUsernameCount }}</span> 个用户名
+        NewsLiquid 在线识别 <span class="text-[#6d55e7] font-semibold">{{ state.systemUsernameCount }}</span> 个显示名称
       </p>
     </div>
 

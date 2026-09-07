@@ -1,0 +1,72 @@
+{
+  "dataList": [
+    {
+      "text": "🌸",
+      "isRegexp": false
+    },
+    {
+      "text": "VIP",
+      "isRegexp": false
+    },
+    {
+      "text": "付费",
+      "isRegexp": false
+    },
+    {
+      "text": "社群",
+      "isRegexp": false
+    },
+    {
+      "text": "转发",
+      "isRegexp": false
+    },
+    {
+      "text": "💊",
+      "isRegexp": false
+    },
+    {
+      "text": "同城上门",
+      "isRegexp": false
+    },
+    {
+      "text": "丄门",
+      "isRegexp": false
+    },
+    {
+      "text": "线下",
+      "isRegexp": false
+    },
+    {
+      "text": "返佣",
+      "isRegexp": false
+    },
+    {
+      "text": "固炮",
+      "isRegexp": false
+    },
+    {
+      "text": "点击主页",
+      "isRegexp": false
+    },
+    {
+      "text": "万达",
+      "isRegexp": false
+    },
+    {
+      "text": "同城",
+      "isRegexp": false
+    },
+    {
+      "text": "互关",
+      "isRegexp": false
+    },
+    {
+      "text": "炮友",
+      "isRegexp": false
+    },
+    {
+      "text": "主页",
+      "isRegexp": false
+    }
+  ]
+}

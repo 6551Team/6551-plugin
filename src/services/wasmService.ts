@@ -8,6 +8,7 @@ import * as ASLoader from '@assemblyscript/loader'
 const YAP_WASM_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/yap.wasm.v2'
 const INFOFI_JSON_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/infofi.v2.json'
 const HANDLE_JSON_URL = 'https://6551.tos-cn-hongkong.volces.com/yap/handle.v2.json'
+type FilterDataSource = 'local' | 'remote'
 
 // WASM 模块实例和关键词数据
 let yapWasmInstance: any = null
@@ -16,15 +17,38 @@ let infofiKeywords: Array<{ text: string, isRegexp: boolean }> = []
 // 用户名数据：存储 { text: string, isRegexp: boolean }
 let handleUsernames: Array<{ text: string, isRegexp: boolean }> = []
 
+function extensionRuntimeAvailable(): boolean {
+  return typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id && chrome.storage?.local)
+}
+
+export async function remoteFilterUpdateAvailable(): Promise<boolean> {
+  if (!extensionRuntimeAvailable()) return false
+
+  const response = await chrome.runtime.sendMessage({ type: 'FILTER_DATA_ENSURE' }) as {
+    success?: boolean
+    error?: string
+    data?: { updateAvailable?: boolean }
+  }
+  if (!response?.success) throw new Error(response?.error || '无法同步在线过滤规则')
+  return Boolean(response.data?.updateAvailable)
+}
+
+function sourceUrl(source: FilterDataSource, remoteUrl: string, localPath: string): string {
+  if (source === 'remote' || !extensionRuntimeAvailable()) return remoteUrl
+  return chrome.runtime.getURL(localPath)
+}
+
 /**
  * 加载 yap.wasm 模块
  */
-async function loadYapWasm(): Promise<void> {
+async function loadYapWasm(source: FilterDataSource): Promise<any> {
   try {
-    console.log('[WASM服务] 正在加载 yap.wasm...')
+    console.log(`[WASM服务] 正在加载 ${source === 'local' ? '本地基线' : '在线'} yap.wasm...`)
 
-    // 使用 fetch 加载 WASM 文件
-    const response = await fetch(YAP_WASM_URL)
+    const response = await fetch(sourceUrl(source, YAP_WASM_URL, 'filter-data/yap.wasm.v2'), {
+      cache: source === 'remote' ? 'default' : 'force-cache',
+    })
+    if (!response.ok) throw new Error(`yap.wasm 请求失败 (${response.status})`)
     const buffer = await response.arrayBuffer()
 
     // 使用 AssemblyScript Loader 实例化
@@ -36,9 +60,8 @@ async function loadYapWasm(): Promise<void> {
       },
     })
 
-    yapWasmInstance = wasm.exports
-
     console.log('[WASM服务] yap.wasm 加载成功')
+    return wasm.exports
   } catch (error) {
     console.error('[WASM服务] 加载 yap.wasm 失败:', error)
     throw error
@@ -48,26 +71,29 @@ async function loadYapWasm(): Promise<void> {
 /**
  * 加载 infofi.json 关键词数据
  */
-async function loadInfofiJson(): Promise<void> {
+async function loadInfofiJson(source: FilterDataSource): Promise<Array<{ text: string, isRegexp: boolean }>> {
   try {
-    console.log('[数据服务] 正在加载 infofi.json...')
+    console.log(`[数据服务] 正在加载${source === 'local' ? '本地基线' : '在线'} infofi.json...`)
 
-    // 使用 fetch 加载 JSON 文件
-    const response = await fetch(INFOFI_JSON_URL)
+    const response = await fetch(sourceUrl(source, INFOFI_JSON_URL, 'filter-data/infofi.v2.json'), {
+      cache: source === 'remote' ? 'default' : 'force-cache',
+    })
+    if (!response.ok) throw new Error(`infofi.json 请求失败 (${response.status})`)
     const data = await response.json()
 
     // 解析数据
     if (data.dataList && Array.isArray(data.dataList)) {
-      infofiKeywords = []
+      const keywords: Array<{ text: string, isRegexp: boolean }> = []
       data.dataList.forEach((item: { text: string, isRegexp?: boolean }) => {
         if (item.text) {
-          infofiKeywords.push({
+          keywords.push({
             text: item.text.toLowerCase(),
             isRegexp: item.isRegexp || false
           })
         }
       })
-      console.log(`[数据服务] infofi.json 加载成功，共 ${infofiKeywords.length} 个关键词`)
+      console.log(`[数据服务] infofi.json 加载成功，共 ${keywords.length} 个关键词`)
+      return keywords
     } else {
       throw new Error('infofi.json 格式错误')
     }
@@ -80,26 +106,29 @@ async function loadInfofiJson(): Promise<void> {
 /**
  * 加载 handle.json 用户名数据
  */
-async function loadHandleJson(): Promise<void> {
+async function loadHandleJson(source: FilterDataSource): Promise<Array<{ text: string, isRegexp: boolean }>> {
   try {
-    console.log('[数据服务] 正在加载 handle.json...')
+    console.log(`[数据服务] 正在加载${source === 'local' ? '本地基线' : '在线'} handle.json...`)
 
-    // 使用 fetch 加载 JSON 文件
-    const response = await fetch(HANDLE_JSON_URL)
+    const response = await fetch(sourceUrl(source, HANDLE_JSON_URL, 'filter-data/handle.v2.json'), {
+      cache: source === 'remote' ? 'default' : 'force-cache',
+    })
+    if (!response.ok) throw new Error(`handle.json 请求失败 (${response.status})`)
     const data = await response.json()
 
     // 解析数据
     if (data.dataList && Array.isArray(data.dataList)) {
-      handleUsernames = []
+      const usernames: Array<{ text: string, isRegexp: boolean }> = []
       data.dataList.forEach((item: { text: string, isRegexp?: boolean }) => {
         if (item.text) {
-          handleUsernames.push({
+          usernames.push({
             text: item.text.toLowerCase(),
             isRegexp: item.isRegexp || false
           })
         }
       })
-      console.log(`[数据服务] handle.json 加载成功，共 ${handleUsernames.length} 个用户名`)
+      console.log(`[数据服务] handle.json 加载成功，共 ${usernames.length} 个用户名`)
+      return usernames
     } else {
       throw new Error('handle.json 格式错误')
     }
@@ -112,13 +141,16 @@ async function loadHandleJson(): Promise<void> {
 /**
  * 初始化所有数据模块
  */
-export async function initializeWasm(): Promise<void> {
-  await Promise.all([
-    loadYapWasm(),
-    loadInfofiJson(),
-    loadHandleJson()
+export async function initializeWasm(source: FilterDataSource = 'local'): Promise<void> {
+  const [wasm, keywords, usernames] = await Promise.all([
+    loadYapWasm(source),
+    loadInfofiJson(source),
+    loadHandleJson(source),
   ])
-  console.log('[数据服务] 所有数据模块初始化完成')
+  yapWasmInstance = wasm
+  infofiKeywords = keywords
+  handleUsernames = usernames
+  console.log(`[数据服务] ${source === 'local' ? '本地基线' : '在线'}数据模块初始化完成`)
 }
 
 /**
@@ -329,12 +361,12 @@ export function getHandleCount(): number {
  * 带重试机制的初始化函数
  * @param maxRetries 最大重试次数
  */
-export async function initializeWasmWithRetry(maxRetries = 3): Promise<void> {
+export async function initializeWasmWithRetry(maxRetries = 3, source: FilterDataSource = 'local'): Promise<void> {
   let lastError: Error | null = null
 
   for (let i = 0; i < maxRetries; i++) {
     try {
-      await initializeWasm()
+      await initializeWasm(source)
       return
     } catch (error) {
       lastError = error as Error

@@ -8,13 +8,6 @@ import manifest from './manifest.config.ts'
 import { name, version } from './package.json'
 
 export default defineConfig({
-  build: {
-    rollupOptions: {
-      input: {
-        dashboard: path.resolve(__dirname, 'src/pages/dashboard/index.html'),
-      },
-    },
-  },
   resolve: {
     alias: {
       '@': `${path.resolve(__dirname, 'src')}`,

@@ -1,5 +1,5 @@
 {
-  "name": "6551-plugin",
+  "name": "newsliquid-x-extension",
   "type": "module",
   "version": "1.0.7",
   "private": true,
@@ -11,8 +11,10 @@
     "@assemblyscript/loader": "^0.28.9",
     "@element-plus/icons-vue": "^2.3.2",
     "element-plus": "^2.11.7",
+    "gsap": "^3.15.0",
     "pinia": "^3.0.4",
-    "vue": "^3.5.17"
+    "vue": "^3.5.17",
+    "weui": "^2.6.26"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.3",

@@ -1,484 +1,797 @@
 import type { StorageManager } from './storageManager'
-import type { ReportManager } from './reportManager'
+
+interface FilterResult {
+  type: '账户' | '关键词' | '用户名'
+  value: string
+}
+
+type PresentationState =
+  | 'timeline'
+  | 'timeline-revealed'
+  | 'reply-summary'
+  | 'reply-hidden'
+  | 'reply-revealed-summary'
+  | 'reply-revealed'
 
 /**
- * 推文处理类
- * 负责推文的过滤、隐藏和显示
+ * 读取并过滤 X 推文。时间线为每条命中内容保留紧凑占位，
+ * 推文详情页则把被过滤回复汇总为一条可恢复提示。
  */
 export class TweetProcessor {
-  // 已处理的推文集合,避免重复处理
+  private static readonly STYLE_ID = 'newsliquid-filter-placeholder-style'
+  private static readonly REPLY_AGGREGATE_ID = 'newsliquid-reply-aggregate-host'
+
   private processedTweets = new WeakSet<Element>()
-  // 用户名到显示名称的映射
   private userDisplayNames = new Map<string, string>()
-  // 存储管理器引用
-  private storageManager: StorageManager
-  // 上报管理器引用
-  private reportManager: ReportManager
+  private hiddenTargets = new WeakMap<Element, HTMLElement>()
+  private originalDisplay = new WeakMap<HTMLElement, string>()
+  private presentationRefreshQueued = false
+  private revealedReplyThreadPath: string | null = null
 
-  constructor(storageManager: StorageManager, reportManager: ReportManager) {
-    this.storageManager = storageManager
-    this.reportManager = reportManager
-  }
+  constructor(private storageManager: StorageManager) {}
 
-  /**
-   * 获取包含 emoji 图片 alt 文本的可见文本
-   */
   private getElementText(element: Element): string {
     const parts: string[] = []
-
-    const collectText = (node: Node): void => {
+    const collect = (node: Node): void => {
       if (node.nodeType === Node.TEXT_NODE) {
         parts.push(node.textContent || '')
         return
       }
-
-      if (!(node instanceof Element)) {
-        return
-      }
-
+      if (!(node instanceof Element)) return
       if (node instanceof HTMLImageElement) {
         parts.push(node.alt || node.getAttribute('aria-label') || node.title || '')
         return
       }
-
-      node.childNodes.forEach(collectText)
+      node.childNodes.forEach(collect)
     }
-
-    collectText(element)
+    collect(element)
     return parts.join('').trim()
   }
 
-  /**
-   * 获取用户的显示名称
-   */
-  getUserDisplayName(element: Element, username: string): string {
-    // 先检查缓存
-    if (this.userDisplayNames.has(username)) {
-      return this.userDisplayNames.get(username)!
+  getTweetUsername(element: Element): string | null {
+    const userName = element.querySelector('[data-testid="User-Name"]')
+    const profileLinks = userName?.querySelectorAll<HTMLAnchorElement>('a[href]') || []
+    for (const link of Array.from(profileLinks)) {
+      const match = link.getAttribute('href')?.match(/^\/([A-Za-z0-9_]+)$/)
+      if (match) return match[1]
     }
 
-    // 尝试从推文中找到显示名称
-    const userLinks = element.querySelectorAll('a[href*="/"]')
+    const statusLink = element.querySelector<HTMLAnchorElement>('a[href*="/status/"]')
+    return statusLink?.getAttribute('href')?.match(/^\/([^/]+)\/status\/\d+/)?.[1] || null
+  }
 
-    for (const link of Array.from(userLinks)) {
-      const href = link.getAttribute('href')
-      if (href && href.match(new RegExp(`^/${username}$`))) {
-        const parent = link.closest('[data-testid="User-Name"]')
-        if (parent) {
-          const spans = parent.querySelectorAll('span')
-          for (const span of Array.from(spans)) {
-            const text = this.getElementText(span)
-            // 过滤掉无效的显示名称：空字符串、@开头、用户名本身、单个特殊字符（如·）
-            if (text &&
-                !text.startsWith('@') &&
-                text !== username &&
-                text.length > 1 &&
-                text !== '·') {
-              this.userDisplayNames.set(username, text)
-              return text
-            }
-          }
+  getUserDisplayName(element: Element, username: string): string {
+    const cached = this.userDisplayNames.get(username)
+    if (cached) return cached
 
-          const firstSpan = parent.querySelector('span')
-          if (firstSpan) {
-            const displayName = this.getElementText(firstSpan)
-            if (displayName &&
-                displayName !== `@${username}` &&
-                displayName.length > 1 &&
-                displayName !== '·') {
-              this.userDisplayNames.set(username, displayName)
-              return displayName
-            }
-          }
+    const userName = element.querySelector('[data-testid="User-Name"]')
+    if (userName) {
+      for (const span of Array.from(userName.querySelectorAll('span'))) {
+        const text = this.getElementText(span)
+        if (text && !text.startsWith('@') && text !== username && text !== '·' && text.length > 1) {
+          this.userDisplayNames.set(username, text)
+          return text
         }
       }
     }
-
     return username
   }
 
-  /**
-   * 从推文元素获取用户名
-   */
-  getTweetUsername(element: Element): string | null {
-    const userLinks = element.querySelectorAll('a[href*="/"]')
-
-    for (const link of Array.from(userLinks)) {
-      const href = link.getAttribute('href')
-      if (!href) continue
-
-      const match = href.match(/^\/([^/]+)$/)
-      if (match) {
-        return match[1]
-      }
-    }
-
-    return null
-  }
-
-  /**
-   * 获取推文文本内容
-   */
   getTweetContent(element: Element): string {
-    // 获取推文的文本内容
-    const tweetTextElement = element.querySelector('[data-testid="tweetText"]')
-    if (tweetTextElement) {
-      return this.getElementText(tweetTextElement)
-    }
-    return ''
+    const tweetText = element.querySelector('[data-testid="tweetText"]')
+    return tweetText ? this.getElementText(tweetText) : ''
   }
 
-  /**
-   * 检查推文内容是否包含过滤关键词（不区分大小写）
-   */
-  containsFilterKeyword(content: string): string | null {
-    // 使用 storageManager 的关键词过滤方法，返回匹配到的具体关键词
-    return this.storageManager.shouldFilterKeyword(content)
-  }
-
-  /**
-   * 检查推文是否应该被过滤
-   * @returns 返回过滤原因和类型: { type: '账户'|'关键词'|'用户名', value: string }
-   * 优先级: 手动白名单 > 手动屏蔽 > WASM白名单 > WASM黑名单 > 关键词/用户名过滤
-   * 注意: 所有白名单账号（手动+WASM）不受关键词和用户名过滤影响
-   */
-  shouldFilterTweet(element: Element): { type: string, value: string } | null {
-    // 获取账号信息
+  private shouldFilterTweet(element: Element): FilterResult | null {
     const username = this.getTweetUsername(element)
-
     if (username) {
-      // 检查账号过滤，shouldFilterAccount 内部已实现正确优先级：
-      // 手动白名单 > 手动屏蔽 > WASM白名单 > WASM黑名单
-      const shouldFilter = this.storageManager.shouldFilterAccount(username)
-
-      // 如果应该过滤，直接返回
-      if (shouldFilter) {
-        // 保存显示名称
+      if (this.storageManager.shouldFilterAccount(username)) {
         this.getUserDisplayName(element, username)
         return { type: '账户', value: username }
       }
 
-      // 检查是否在任意白名单中（手动白名单 + WASM白名单），白名单账号豁免关键词和用户名过滤
-      const isInWhitelist = this.storageManager.isAccountWhitelisted(username)
-      if (isInWhitelist) {
-        // 白名单账号不受关键词和用户名过滤影响
-        return null
-      }
+      if (this.storageManager.isAccountWhitelisted(username)) return null
 
-      // 检查用户名（显示名称）过滤
       const displayName = this.getUserDisplayName(element, username)
       const matchedUsername = this.storageManager.shouldFilterUsername(displayName)
-      if (matchedUsername) {
-        return { type: '用户名', value: matchedUsername }
-      }
+      if (matchedUsername) return { type: '用户名', value: matchedUsername }
     }
 
-    // 检查关键词过滤
-    const content = this.getTweetContent(element)
-    const keyword = this.containsFilterKeyword(content)
-    if (keyword) {
-      return { type: '关键词', value: keyword }
-    }
-
-    return null
+    const matchedKeyword = this.storageManager.shouldFilterKeyword(this.getTweetContent(element))
+    return matchedKeyword ? { type: '关键词', value: matchedKeyword } : null
   }
 
-  /**
-   * 检测主题
-   */
-  private detectTheme(): 'light' | 'dark' {
-    try {
-      const htmlStyle = window.getComputedStyle(document.documentElement)
-      const colorScheme = htmlStyle.colorScheme || htmlStyle.getPropertyValue('color-scheme')
-
-      if (colorScheme && colorScheme.includes('light')) {
-        return 'light'
-      }
-    } catch (error) {
-      console.log('[主题检测] 检测失败，使用默认暗色主题')
-    }
-
-    // 默认使用暗色主题
-    return 'dark'
+  private getHideTarget(element: Element): HTMLElement {
+    return element.closest<HTMLElement>('[data-testid="cellInnerDiv"]') || element as HTMLElement
   }
 
-  /**
-   * 创建占位块元素
-   */
-  private createPlaceholder(filterType: string, filterValue: string): HTMLElement {
+  private ensurePresentationStyles(): void {
+    if (document.getElementById(TweetProcessor.STYLE_ID)) return
+
+    const style = document.createElement('style')
+    style.id = TweetProcessor.STYLE_ID
+    style.textContent = `
+      [data-newsliquid-filter-state="timeline"],
+      [data-newsliquid-filter-state="timeline-revealed"],
+      [data-newsliquid-filter-state="reply-summary"],
+      [data-newsliquid-filter-state="reply-revealed-summary"],
+      [data-newsliquid-filter-state="reply-revealed"] {
+        display: block !important;
+      }
+
+      [data-newsliquid-filter-state="timeline"] > :not(.nl-filter-placeholder):not(.nl-reply-aggregate-host),
+      [data-newsliquid-filter-state="reply-summary"] > :not(.nl-filter-placeholder) {
+        display: none !important;
+      }
+
+      [data-newsliquid-filter-state="reply-hidden"] {
+        display: none !important;
+      }
+
+      .nl-reply-aggregate-host {
+        display: block;
+        width: 100%;
+      }
+
+      .nl-filter-placeholder {
+        box-sizing: border-box;
+        min-height: 44px;
+        width: 100%;
+        padding: 7px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: #6f6b78;
+        background: #ffffff;
+        border-bottom: 1px solid rgba(35, 31, 48, 0.10);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .nl-filter-placeholder[data-revealed="true"] {
+        background: #faf9fd;
+      }
+
+      .nl-filter-placeholder[data-theme="dark"] {
+        color: #a9a5b2;
+        background: #000000;
+        border-bottom-color: rgba(255, 255, 255, 0.11);
+      }
+
+      .nl-filter-placeholder[data-theme="dark"][data-revealed="true"] {
+        background: #111015;
+      }
+
+      .nl-filter-placeholder__message {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .nl-filter-placeholder__brand {
+        color: #35313f;
+        font-weight: 650;
+      }
+
+      .nl-filter-placeholder[data-theme="dark"] .nl-filter-placeholder__brand {
+        color: #f2eff8;
+      }
+
+      .nl-filter-placeholder__count {
+        margin: 0 2px;
+        color: #6d55e7;
+        font-size: 14px;
+        font-weight: 750;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .nl-filter-placeholder[data-theme="dark"] .nl-filter-placeholder__count {
+        color: #a995ff;
+      }
+
+      .nl-filter-placeholder__button {
+        box-sizing: border-box;
+        min-width: 52px;
+        min-height: 30px;
+        flex: 0 0 auto;
+        padding: 5px 12px;
+        border: 0;
+        border-radius: 999px;
+        color: #5e47d2;
+        background: #eeebff;
+        font: inherit;
+        font-weight: 650;
+        line-height: 20px;
+        cursor: pointer;
+      }
+
+      .nl-filter-placeholder__actions {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .nl-filter-placeholder__button--secondary {
+        min-width: auto;
+        padding-inline: 8px;
+        color: #6f6b78;
+        background: transparent;
+      }
+
+      .nl-filter-placeholder__button--secondary:hover {
+        color: #5e47d2;
+        background: #f3f1fb;
+      }
+
+      .nl-filter-placeholder__button:disabled {
+        cursor: wait;
+        opacity: 0.58;
+      }
+
+      .nl-filter-placeholder__button:hover {
+        background: #e3defe;
+      }
+
+      .nl-filter-placeholder__button:focus-visible {
+        outline: 2px solid #6d55e7;
+        outline-offset: 2px;
+      }
+
+      .nl-filter-placeholder[data-theme="dark"] .nl-filter-placeholder__button {
+        color: #c9beff;
+        background: #29243f;
+      }
+
+      .nl-filter-placeholder[data-theme="dark"] .nl-filter-placeholder__button--secondary {
+        color: #a9a5b2;
+        background: transparent;
+      }
+
+      .nl-filter-placeholder[data-theme="dark"] .nl-filter-placeholder__button--secondary:hover {
+        color: #c9beff;
+        background: #211d31;
+      }
+
+      .nl-filter-placeholder[data-theme="dark"] .nl-filter-placeholder__button:hover {
+        background: #342d50;
+      }
+
+      .nl-filter-placeholder__button.nl-filter-placeholder__button--secondary:hover {
+        color: #5e47d2;
+        background: #f3f1fb;
+      }
+
+      .nl-filter-placeholder[data-theme="dark"] .nl-filter-placeholder__button.nl-filter-placeholder__button--secondary:hover {
+        color: #c9beff;
+        background: #211d31;
+      }
+
+      @media (max-width: 420px) {
+        .nl-filter-placeholder {
+          padding-inline: 12px;
+        }
+      }
+    `
+    ;(document.head || document.documentElement).appendChild(style)
+  }
+
+  private getTheme(): 'light' | 'dark' {
+    const elements = [document.body, document.documentElement]
+    for (const element of elements) {
+      const color = getComputedStyle(element).backgroundColor
+      const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/)
+      if (!match || match[4] === '0') continue
+      const luminance = Number(match[1]) * 0.299 + Number(match[2]) * 0.587 + Number(match[3]) * 0.114
+      return luminance < 128 ? 'dark' : 'light'
+    }
+    return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  }
+
+  private getDirectPlaceholder(target: HTMLElement): HTMLElement | null {
+    return Array.from(target.children).find((child) => child.classList.contains('nl-filter-placeholder')) as HTMLElement | undefined || null
+  }
+
+  private restoreOriginalTargetDisplay(target: HTMLElement): void {
+    const display = this.originalDisplay.get(target)
+    if (display) target.style.setProperty('display', display)
+    else target.style.removeProperty('display')
+  }
+
+  private clearTargetPresentation(target: HTMLElement): void {
+    this.getDirectPlaceholder(target)?.remove()
+    target.removeAttribute('data-newsliquid-filter-state')
+    this.restoreOriginalTargetDisplay(target)
+    this.originalDisplay.delete(target)
+  }
+
+  private setPresentationState(target: HTMLElement, state: PresentationState): void {
+    target.setAttribute('data-newsliquid-filter-state', state)
+    if (state === 'reply-hidden') {
+      target.style.setProperty('display', 'none', 'important')
+    } else {
+      this.restoreOriginalTargetDisplay(target)
+    }
+    if (state === 'reply-hidden' || state === 'reply-revealed') this.getDirectPlaceholder(target)?.remove()
+  }
+
+  private getFilteredTweetsInTarget(target: HTMLElement): HTMLElement[] {
+    const selector = 'article[data-testid="tweet"][data-filtered-user]'
+    const tweets = Array.from(target.querySelectorAll<HTMLElement>(selector))
+    if (target.matches(selector)) tweets.unshift(target)
+    return Array.from(new Set(tweets))
+  }
+
+  private isRevealed(tweet: Element): boolean {
+    return tweet.getAttribute('data-newsliquid-revealed') === 'true'
+  }
+
+  private targetHasHiddenTweets(target: HTMLElement): boolean {
+    return this.getFilteredTweetsInTarget(target).some((tweet) => !this.isRevealed(tweet))
+  }
+
+  private targetHasRevealedTweets(target: HTMLElement): boolean {
+    return this.getFilteredTweetsInTarget(target).some((tweet) => this.isRevealed(tweet))
+  }
+
+  private getActionTargets(target: HTMLElement, state: PresentationState): HTMLElement[] {
+    if (state === 'reply-summary') {
+      return this.getFilteredReplyTargets().filter((replyTarget) => this.targetHasHiddenTweets(replyTarget))
+    }
+    if (state === 'reply-revealed-summary') {
+      return this.getFilteredReplyTargets().filter((replyTarget) => (
+        !this.targetHasHiddenTweets(replyTarget) && this.targetHasRevealedTweets(replyTarget)
+      ))
+    }
+    return [target]
+  }
+
+  private createPlaceholder(
+    target: HTMLElement,
+    state: 'timeline' | 'timeline-revealed' | 'reply-summary' | 'reply-revealed-summary',
+    count = 1,
+  ): void {
+    this.setPresentationState(target, state)
+
+    const presentationKey = `${state}:${count}`
+    const current = this.getDirectPlaceholder(target)
+    if (current?.dataset.presentationKey === presentationKey) {
+      current.dataset.theme = this.getTheme()
+      if (state.includes('revealed') && target.firstElementChild !== current) target.prepend(current)
+      return
+    }
+    current?.remove()
+
     const placeholder = document.createElement('div')
-    placeholder.className = 'tweet-filter-placeholder'
-    placeholder.setAttribute('data-filter-placeholder', 'true')
+    placeholder.className = 'nl-filter-placeholder'
+    placeholder.dataset.theme = this.getTheme()
+    placeholder.dataset.revealed = state.includes('revealed') ? 'true' : 'false'
+    placeholder.dataset.presentationKey = presentationKey
 
-    // 根据主题设置颜色
-    const theme = this.detectTheme()
-    const bgColor = theme === 'dark' ? '#1e1e1e' : '#f7f9f9'
-    const borderColor = theme === 'dark' ? '#2f2f2f' : '#eff3f4'
-    const textColor = theme === 'dark' ? '#8b8b8b' : '#536471'
-    const strongColor = theme === 'dark' ? '#b4b4b4' : '#0f1419'
-    const btnTextColor = theme === 'dark' ? '#ffffff' : '#0f1419'
+    const message = document.createElement('div')
+    message.className = 'nl-filter-placeholder__message'
+    message.setAttribute('role', 'status')
 
-    placeholder.style.cssText = `
-      padding: 8px 12px;
-      margin: 4px 4px;
-      background-color: ${bgColor};
-      border: 1px solid ${borderColor};
-      color: ${textColor};
-      font-size: 12px;
-      text-align: left;
-      cursor: default;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    `
+    const brand = document.createElement('span')
+    brand.className = 'nl-filter-placeholder__brand'
+    brand.textContent = 'NewsLiquid '
+    message.appendChild(brand)
 
-    // 根据过滤类型格式化显示文本
-    let messageText = ''
-    if (filterType === '账户') {
-      messageText = `检测到<strong style="color: ${strongColor};">${filterValue}</strong>账户疑似自动化运营账户或yapper达人，6551已为您自动屏蔽`
-    } else if (filterType === '关键词') {
-      messageText = `检测到内容包含敏感关键词<strong style="color: ${strongColor};">${filterValue}</strong>，6551已为您自动屏蔽`
-    } else if (filterType === '用户名') {
-      messageText = `检测到用户名包含敏感词<strong style="color: ${strongColor};">${filterValue}</strong>，6551已为您自动屏蔽`
+    if (state === 'reply-summary' || state === 'reply-revealed-summary') {
+      message.append(state === 'reply-summary' ? '已帮你屏蔽 ' : '正在显示 ')
+      const countText = document.createElement('strong')
+      countText.className = 'nl-filter-placeholder__count'
+      countText.textContent = String(count)
+      message.append(countText, state === 'reply-summary' ? ' 条回复' : ' 条已屏蔽回复')
+    } else if (state === 'timeline-revealed') {
+      message.append('正在显示已屏蔽内容')
+    } else {
+      message.append('已隐藏一条内容')
     }
 
-    placeholder.innerHTML = `
-      <span>${messageText}</span>
-      <div style="display: flex; gap: 8px; flex-shrink: 0; margin-left: 12px;">
-        <span class="show-original-tweet" style="color: #409eff; cursor: pointer;">显示原文</span>
-      </div>
-    `
+    const actions = document.createElement('div')
+    actions.className = 'nl-filter-placeholder__actions'
 
-    // 添加"显示原文"点击事件
-    const showBtn = placeholder.querySelector('.show-original-tweet')
-    if (showBtn) {
-      showBtn.addEventListener('click', () => {
-        // 找到被隐藏的推文并显示
-        const hiddenTweet = placeholder.previousElementSibling
-        if (hiddenTweet && hiddenTweet.getAttribute('data-filtered-user')) {
-          const htmlElement = hiddenTweet as HTMLElement
-          htmlElement.style.display = ''
+    const cancelButton = document.createElement('button')
+    cancelButton.type = 'button'
+    cancelButton.className = 'nl-filter-placeholder__button nl-filter-placeholder__button--secondary'
+    cancelButton.textContent = '取消屏蔽'
+    cancelButton.setAttribute('aria-label', state.includes('reply') ? '取消这些回复对应的屏蔽规则' : '取消这条内容对应的屏蔽规则')
 
-          // 在时间戳旁边添加"设为白名单"按钮
-          const timeElement = htmlElement.querySelector('time')
-          if (timeElement) {
-            const parentElement = timeElement.parentElement?.parentElement
-            if (parentElement) {
-              const whitelistBtn = document.createElement('img')
-              whitelistBtn.className = 'whitelist-btn'
-              whitelistBtn.src = chrome.runtime.getURL('white.png')
+    const primaryButton = document.createElement('button')
+    primaryButton.type = 'button'
+    primaryButton.className = 'nl-filter-placeholder__button'
+    const revealed = state.includes('revealed')
+    if (revealed) {
+      primaryButton.textContent = '恢复屏蔽'
+      primaryButton.setAttribute('aria-label', state.includes('reply') ? `重新隐藏这 ${count} 条回复` : '重新隐藏这条内容')
+    } else if (state === 'reply-summary') {
+      primaryButton.textContent = `显示 ${count} 条`
+      primaryButton.setAttribute('aria-label', `临时显示已屏蔽的 ${count} 条回复`)
+    } else {
+      primaryButton.textContent = '显示'
+      primaryButton.setAttribute('aria-label', '临时显示这条已屏蔽内容')
+    }
 
-              whitelistBtn.style.cssText = `
-                cursor: pointer;
-                width: 16px;
-                height: 16px;
-                margin-left: 8px;
-                vertical-align: middle;
-              `
-              whitelistBtn.title = '设为白名单(6551提供)'
+    const stopEvent = (event: Event): void => event.stopPropagation()
+    for (const button of [cancelButton, primaryButton]) {
+      button.addEventListener('pointerdown', stopEvent)
+      button.addEventListener('mousedown', stopEvent)
+    }
 
-              whitelistBtn.addEventListener('click', async (e) => {
-                e.stopPropagation()
-                e.preventDefault()
+    cancelButton.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      void this.cancelFilteringForTargets(this.getActionTargets(target, state), cancelButton)
+    })
 
-                try {
-                  if (filterType === '账户') {
-                    // 账户类型：发送误报反馈到 background
-                    const result = await this.reportManager.handleFeedbackMisreport(filterValue)
-                    if (result.success) {
-                      alert(`已将账户 "${filterValue}" 加入白名单`)
-                    } else {
-                      alert(`反馈失败: ${result.error}`)
-                      return
-                    }
-                  } else if (filterType === '关键词') {
-                    // 关键词类型：添加到关键词白名单
-                    const result = await chrome.storage.local.get(['manualWhitelistKeywords'])
-                    const whitelist = result.manualWhitelistKeywords || []
-                    if (!whitelist.includes(filterValue)) {
-                      whitelist.push(filterValue)
-                      await chrome.storage.local.set({ manualWhitelistKeywords: whitelist })
-                    }
-                    alert(`已将关键词 "${filterValue}" 加入白名单`)
-                  } else if (filterType === '用户名') {
-                    // 用户名类型：添加到用户名白名单
-                    const result = await chrome.storage.local.get(['manualWhitelistUsernames'])
-                    const whitelist = result.manualWhitelistUsernames || []
-                    if (!whitelist.includes(filterValue)) {
-                      whitelist.push(filterValue)
-                      await chrome.storage.local.set({ manualWhitelistUsernames: whitelist })
-                    }
-                    alert(`已将用户名 "${filterValue}" 加入白名单`)
-                  }
+    primaryButton.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const actionTargets = this.getActionTargets(target, state)
+      if (revealed) this.restoreTargets(actionTargets)
+      else this.revealTargets(actionTargets)
+    })
 
-                  // 移除白名单按钮
-                  whitelistBtn.remove()
-                } catch (error) {
-                  alert('加入白名单失败')
-                  console.error('[推文过滤器] 加入白名单失败:', error)
-                }
-              })
+    actions.append(cancelButton, primaryButton)
+    placeholder.append(message, actions)
+    if (revealed) target.prepend(placeholder)
+    else target.appendChild(placeholder)
+  }
 
-              parentElement.appendChild(whitelistBtn)
-            }
-          }
+  private getThreadPath(): string | null {
+    const match = location.pathname.match(/^\/([^/]+)\/status\/(\d+)/)
+    return match ? `/${match[1]}/status/${match[2]}` : null
+  }
 
-          placeholder.remove()
+  private getThreadRootTarget(): HTMLElement | null {
+    const threadPath = this.getThreadPath()
+    if (!threadPath) return null
+
+    const rootArticle = Array.from(document.querySelectorAll<HTMLElement>('article[data-testid="tweet"]')).find((article) => {
+      return Array.from(article.querySelectorAll<HTMLAnchorElement>('a[href*="/status/"]')).some((link) => {
+        try {
+          return new URL(link.href, location.origin).pathname.replace(/\/$/, '') === threadPath
+        } catch {
+          return (link.getAttribute('href') || '').split('?')[0].replace(/\/$/, '') === threadPath
         }
       })
-    }
-
-    return placeholder
-  }
-
-  /**
-   * 隐藏推文元素并显示占位块
-   */
-  hideTweet(element: Element, filterType: string, filterValue: string): void {
-    const htmlElement = element as HTMLElement
-
-    // 检查是否已经添加了占位块
-    const existingPlaceholder = htmlElement.nextElementSibling
-    if (existingPlaceholder && existingPlaceholder.getAttribute('data-filter-placeholder') === 'true') {
-      return
-    }
-
-    // 隐藏推文
-    if (htmlElement.style.display !== 'none') {
-      htmlElement.style.display = 'none'
-      htmlElement.setAttribute('data-filtered-user', filterValue)
-      htmlElement.setAttribute('data-filtered-type', filterType)
-
-      // 始终显示占位块（清爽模式只隐藏右侧UI）
-      const placeholder = this.createPlaceholder(filterType, filterValue)
-      htmlElement.after(placeholder)
-
-      // 增加拦截计数
-      this.storageManager.incrementBlockCount()
-
-      console.log(`[推文过滤器] 已隐藏推文 - 类型: ${filterType}, 值: ${filterValue}`)
-    }
-  }
-
-  /**
-   * 显示推文元素并移除占位块
-   */
-  showTweet(element: Element): void {
-    const htmlElement = element as HTMLElement
-    if (htmlElement.style.display === 'none' && htmlElement.getAttribute('data-filtered-user')) {
-      htmlElement.style.display = ''
-      htmlElement.removeAttribute('data-filtered-user')
-
-      // 移除占位块
-      const nextElement = htmlElement.nextElementSibling
-      if (nextElement && nextElement.getAttribute('data-filter-placeholder') === 'true') {
-        nextElement.remove()
-      }
-    }
-  }
-
-  /**
-   * 显示指定用户的所有推文
-   */
-  showUserTweets(username: string): void {
-    const allTweets = document.querySelectorAll('article[data-testid="tweet"][data-filtered-user]')
-
-    allTweets.forEach(tweet => {
-      const filteredUser = tweet.getAttribute('data-filtered-user')
-      if (filteredUser === username) {
-        this.showTweet(tweet)
-        console.log(`[推文过滤器] 已显示推文 - 用户: ${username}`)
-      }
     })
 
-    // 从缓存中移除
-    this.userDisplayNames.delete(username)
+    return rootArticle ? this.getHideTarget(rootArticle) : null
   }
 
   /**
-   * 处理推文元素
+   * 回复汇总条固定在主推文/回复编辑器单元底部，不依附任何一条回复。
+   * 宿主放在 X 管理高度的根单元内部，避免虚拟列表把普通兄弟节点定位到错误位置。
    */
-  processTweet(element: Element, forceUpdate = false): void {
-    // 如果已经处理过且不是强制更新,跳过
-    if (this.processedTweets.has(element) && !forceUpdate) {
+  private ensureReplyAggregateHost(rootTarget: HTMLElement): HTMLElement | null {
+    if (!rootTarget.parentElement) return null
+
+    const duplicateHosts = document.querySelectorAll<HTMLElement>(`#${TweetProcessor.REPLY_AGGREGATE_ID}`)
+    let host = duplicateHosts[0] || null
+    duplicateHosts.forEach((duplicate, index) => {
+      if (index > 0) duplicate.remove()
+    })
+
+    if (!host) {
+      host = document.createElement('div')
+      host.id = TweetProcessor.REPLY_AGGREGATE_ID
+      host.className = 'nl-reply-aggregate-host'
+      host.setAttribute('data-newsliquid-reply-aggregate', 'true')
+    }
+
+    if (host.parentElement !== rootTarget || rootTarget.lastElementChild !== host) rootTarget.appendChild(host)
+    return host
+  }
+
+  private clearReplyAggregateHost(): void {
+    const host = document.getElementById(TweetProcessor.REPLY_AGGREGATE_ID)
+    if (!host) return
+    this.clearTargetPresentation(host)
+    host.remove()
+  }
+
+  private getFilteredTargets(): HTMLElement[] {
+    const tweets = document.querySelectorAll<HTMLElement>('article[data-testid="tweet"][data-filtered-user]')
+    return Array.from(new Set(Array.from(tweets, (tweet) => this.hiddenTargets.get(tweet) || this.getHideTarget(tweet))))
+      .filter((target) => target.isConnected)
+  }
+
+  private getFilteredReplyTargets(): HTMLElement[] {
+    if (!this.getThreadPath()) return []
+    const rootTarget = this.getThreadRootTarget()
+    return this.getFilteredTargets().filter((target) => target !== rootTarget)
+  }
+
+  private revealTargets(targets: HTMLElement[]): void {
+    const threadPath = this.getThreadPath()
+    const rootTarget = this.getThreadRootTarget()
+    if (threadPath && targets.some((target) => target !== rootTarget)) {
+      this.revealedReplyThreadPath = threadPath
+    }
+    targets.forEach((target) => {
+      this.getFilteredTweetsInTarget(target).forEach((tweet) => {
+        tweet.setAttribute('data-newsliquid-revealed', 'true')
+      })
+      this.restoreOriginalTargetDisplay(target)
+    })
+    this.refreshPresentation()
+  }
+
+  private restoreTargets(targets: HTMLElement[]): void {
+    if (this.revealedReplyThreadPath === this.getThreadPath()) this.revealedReplyThreadPath = null
+    targets.forEach((target) => {
+      this.getFilteredTweetsInTarget(target).forEach((tweet) => {
+        tweet.removeAttribute('data-newsliquid-revealed')
+      })
+    })
+    this.refreshPresentation()
+  }
+
+  private getFilterMatches(targets: HTMLElement[]): FilterResult[] {
+    const matches = new Map<string, FilterResult>()
+    targets.forEach((target) => {
+      this.getFilteredTweetsInTarget(target).forEach((tweet) => {
+        const type = tweet.getAttribute('data-filtered-type') as FilterResult['type'] | null
+        const value = tweet.getAttribute('data-filtered-user')
+        if (!type || !value || !['账户', '关键词', '用户名'].includes(type)) return
+        matches.set(`${type}:${value}`, { type, value })
+      })
+    })
+    return Array.from(matches.values())
+  }
+
+  private async addAllowRule(match: FilterResult): Promise<void> {
+    const storageKeys: Record<FilterResult['type'], { blocked: string, allowed: string }> = {
+      账户: { blocked: 'manualBlockedAccounts', allowed: 'manualWhitelistAccounts' },
+      关键词: { blocked: 'manualBlockedKeywords', allowed: 'manualWhitelistKeywords' },
+      用户名: { blocked: 'manualBlockedUsernames', allowed: 'manualWhitelistUsernames' },
+    }
+    const keys = storageKeys[match.type]
+    const normalize = (value: string): string => (
+      match.type === '账户' ? value.replace(/^@/, '').toLowerCase() : value
+    )
+    const ruleText = (rule: unknown): string => {
+      if (typeof rule === 'string') return rule
+      if (rule && typeof rule === 'object' && 'text' in rule) return String((rule as { text?: unknown }).text || '')
+      return ''
+    }
+
+    const stored = await chrome.storage.local.get([keys.allowed, keys.blocked])
+    const rawAllowed: unknown[] = Array.isArray(stored[keys.allowed]) ? stored[keys.allowed] : []
+    const allowed = rawAllowed
+      .map(ruleText)
+      .filter(Boolean)
+    const normalizedValue = normalize(match.value)
+    if (!allowed.some((rule) => normalize(rule) === normalizedValue)) allowed.push(normalizedValue)
+
+    const blocked = (Array.isArray(stored[keys.blocked]) ? stored[keys.blocked] : []).filter((rule: unknown) => (
+      normalize(ruleText(rule)) !== normalizedValue
+    ))
+    await chrome.storage.local.set({ [keys.allowed]: allowed, [keys.blocked]: blocked })
+  }
+
+  private async cancelFilteringForTargets(targets: HTMLElement[], button: HTMLButtonElement): Promise<void> {
+    const matches = this.getFilterMatches(targets)
+    if (matches.length === 0) return
+
+    const originalLabel = button.textContent || '取消屏蔽'
+    button.disabled = true
+    button.textContent = '处理中'
+
+    try {
+      for (const match of matches) {
+        await this.addAllowRule(match)
+      }
+
+      if (this.revealedReplyThreadPath === this.getThreadPath()) this.revealedReplyThreadPath = null
+      const matchKeys = new Set(matches.map((match) => `${match.type}:${match.value}`))
+      document.querySelectorAll<HTMLElement>('article[data-testid="tweet"][data-filtered-user]').forEach((tweet) => {
+        const key = `${tweet.getAttribute('data-filtered-type')}:${tweet.getAttribute('data-filtered-user')}`
+        if (matchKeys.has(key)) this.showTweetInternal(tweet, false)
+      })
+      this.refreshPresentation()
+    } catch (error) {
+      console.error('[NewsLiquid] 取消屏蔽失败:', error)
+      if (button.isConnected) {
+        button.disabled = false
+        button.textContent = '重试'
+        button.title = error instanceof Error ? error.message : '取消屏蔽失败'
+        button.setAttribute('aria-label', `${originalLabel}失败，请重试`)
+      }
+    }
+  }
+
+  private schedulePresentationRefresh(): void {
+    if (this.presentationRefreshQueued) return
+    this.presentationRefreshQueued = true
+    queueMicrotask(() => {
+      this.presentationRefreshQueued = false
+      this.refreshPresentation()
+    })
+  }
+
+  refreshPresentation(): void {
+    this.ensurePresentationStyles()
+
+    const filteredTargets = this.getFilteredTargets()
+    const filteredTargetSet = new Set(filteredTargets)
+    document.querySelectorAll<HTMLElement>('[data-newsliquid-filter-state]').forEach((target) => {
+      if (target.id === TweetProcessor.REPLY_AGGREGATE_ID) return
+      if (!filteredTargetSet.has(target)) this.clearTargetPresentation(target)
+    })
+
+    if (filteredTargets.length === 0) {
+      this.clearReplyAggregateHost()
       return
     }
 
-    const filterResult = this.shouldFilterTweet(element)
-    if (filterResult && this.storageManager.isFilterEnabled) {
-      this.hideTweet(element, filterResult.type, filterResult.value)
-      this.processedTweets.add(element)
-    } else if (!this.storageManager.isFilterEnabled) {
-      this.showTweet(element)
-    } else {
-      this.processedTweets.add(element)
+    const threadPath = this.getThreadPath()
+    if (!threadPath) {
+      this.revealedReplyThreadPath = null
+      this.clearReplyAggregateHost()
+      filteredTargets.forEach((target) => {
+        this.createPlaceholder(target, this.targetHasHiddenTweets(target) ? 'timeline' : 'timeline-revealed')
+      })
+      return
+    }
+
+    const rootTarget = this.getThreadRootTarget()
+    if (!rootTarget) {
+      this.clearReplyAggregateHost()
+      filteredTargets.forEach((target) => {
+        this.createPlaceholder(target, this.targetHasHiddenTweets(target) ? 'timeline' : 'timeline-revealed')
+      })
+      return
+    }
+
+    if (rootTarget && filteredTargetSet.has(rootTarget)) {
+      this.createPlaceholder(rootTarget, this.targetHasHiddenTweets(rootTarget) ? 'timeline' : 'timeline-revealed')
+    }
+
+    const replyTargets = filteredTargets.filter((target) => target !== rootTarget)
+    if (replyTargets.length === 0) {
+      this.clearReplyAggregateHost()
+      return
+    }
+
+    // 用户在当前详情页选择“显示”后，新载入的命中回复也沿用显示状态，
+    // 这样固定汇总条始终只有一个明确的显示/恢复状态。
+    if (this.revealedReplyThreadPath !== threadPath) {
+      replyTargets.forEach((target) => {
+        this.getFilteredTweetsInTarget(target).forEach((tweet) => {
+          tweet.removeAttribute('data-newsliquid-revealed')
+        })
+      })
+    }
+    const revealReplies = this.revealedReplyThreadPath === threadPath
+    replyTargets.forEach((target) => {
+      if (revealReplies) {
+        this.getFilteredTweetsInTarget(target).forEach((tweet) => {
+          tweet.setAttribute('data-newsliquid-revealed', 'true')
+        })
+      }
+      this.setPresentationState(target, revealReplies ? 'reply-revealed' : 'reply-hidden')
+    })
+
+    const aggregateHost = this.ensureReplyAggregateHost(rootTarget)
+    if (aggregateHost) {
+      this.createPlaceholder(
+        aggregateHost,
+        revealReplies ? 'reply-revealed-summary' : 'reply-summary',
+        replyTargets.length,
+      )
     }
   }
 
-  /**
-   * 扫描并处理页面上的所有推文
-   */
-  scanAndFilterTweets(forceUpdate = false): void {
-    const tweets = document.querySelectorAll('article[data-testid="tweet"]')
+  hideTweet(element: Element, filterType: string, filterValue: string): void {
+    const tweet = element as HTMLElement
+    const wasFiltered = tweet.hasAttribute('data-filtered-user')
+    const matchChanged = tweet.getAttribute('data-filtered-user') !== filterValue
+      || tweet.getAttribute('data-filtered-type') !== filterType
+    tweet.setAttribute('data-filtered-user', filterValue)
+    tweet.setAttribute('data-filtered-type', filterType)
+    if (!wasFiltered || matchChanged) tweet.removeAttribute('data-newsliquid-revealed')
 
-    tweets.forEach(tweet => {
+    const target = this.getHideTarget(element)
+    if (!this.originalDisplay.has(target)) this.originalDisplay.set(target, target.style.display)
+    this.hiddenTargets.set(element, target)
+    if (this.isRevealed(tweet)) this.restoreOriginalTargetDisplay(target)
+    else target.style.setProperty('display', 'none', 'important')
+    this.schedulePresentationRefresh()
+
+    if (!wasFiltered) {
+      void this.storageManager.incrementBlockCount()
+      console.log(`[NewsLiquid] 已隐藏推文 - 类型: ${filterType}, 值: ${filterValue}`)
+    }
+  }
+
+  private showTweetInternal(element: Element, refresh: boolean): void {
+    const tweet = element as HTMLElement
+    if (!tweet.hasAttribute('data-filtered-user')) return
+
+    const target = this.hiddenTargets.get(element) || this.getHideTarget(element)
+    tweet.removeAttribute('data-filtered-user')
+    tweet.removeAttribute('data-filtered-type')
+    tweet.removeAttribute('data-newsliquid-revealed')
+    this.hiddenTargets.delete(element)
+
+    if (this.getFilteredTweetsInTarget(target).length === 0) this.clearTargetPresentation(target)
+    if (refresh) this.refreshPresentation()
+  }
+
+  showTweet(element: Element): void {
+    const target = this.hiddenTargets.get(element) || this.getHideTarget(element)
+    this.revealTargets([target])
+  }
+
+  showAllTweets(): number {
+    const hidden = Array.from(document.querySelectorAll<HTMLElement>(
+      'article[data-testid="tweet"][data-filtered-user]:not([data-newsliquid-revealed="true"])',
+    ))
+    const targets = Array.from(new Set(hidden.map((tweet) => this.hiddenTargets.get(tweet) || this.getHideTarget(tweet))))
+    this.revealTargets(targets)
+    return hidden.length
+  }
+
+  showUserTweets(value: string): void {
+    const hidden = document.querySelectorAll('article[data-testid="tweet"][data-filtered-user]')
+    hidden.forEach((tweet) => {
+      if (tweet.getAttribute('data-filtered-user') === value) this.showTweetInternal(tweet, false)
+    })
+    this.userDisplayNames.delete(value)
+    this.refreshPresentation()
+  }
+
+  processTweet(element: Element, forceUpdate = false): void {
+    if (this.processedTweets.has(element) && !forceUpdate) return
+
+    const result = this.shouldFilterTweet(element)
+    if (result && this.storageManager.isFilterEnabled) {
+      this.hideTweet(element, result.type, result.value)
+    } else if (element.hasAttribute('data-filtered-user')) {
+      this.showTweetInternal(element, false)
+      this.schedulePresentationRefresh()
+    }
+    this.processedTweets.add(element)
+  }
+
+  scanAndFilterTweets(forceUpdate = false): void {
+    document.querySelectorAll('article[data-testid="tweet"]').forEach((tweet) => {
       this.processTweet(tweet, forceUpdate)
     })
+    this.refreshPresentation()
   }
 
-  /**
-   * 清空已处理记录
-   */
   clearProcessed(): void {
-    // WeakSet 没有 clear 方法，但新版本可能有
-    if ('clear' in this.processedTweets) {
-      (this.processedTweets as any).clear()
-    }
+    this.processedTweets = new WeakSet<Element>()
   }
 
-  /**
-   * 获取被过滤的用户统计
-   * @returns Map<过滤键(type:value), { type, value, count }>
-   */
   getFilteredUsers(): Map<string, { type: string, value: string, count: number }> {
-    const filterCounts = new Map<string, { type: string, value: string, count: number }>()
-    const hiddenTweets = document.querySelectorAll('article[data-testid="tweet"][data-filtered-user]')
-
-    hiddenTweets.forEach(tweet => {
-      const filterValue = tweet.getAttribute('data-filtered-user')
-      const filterType = tweet.getAttribute('data-filtered-type')
-
-      if (filterValue && filterType) {
-        const key = `${filterType}:${filterValue}`
-        const existing = filterCounts.get(key)
-
-        if (existing) {
-          existing.count++
-        } else {
-          filterCounts.set(key, { type: filterType, value: filterValue, count: 1 })
-        }
-
-        // 如果是账户类型，保存显示名称
-        if (filterType === '账户' && !this.userDisplayNames.has(filterValue)) {
-          this.getUserDisplayName(tweet, filterValue)
-        }
-      }
+    const counts = new Map<string, { type: string, value: string, count: number }>()
+    document.querySelectorAll('article[data-testid="tweet"][data-filtered-user]').forEach((tweet) => {
+      const value = tweet.getAttribute('data-filtered-user')
+      const type = tweet.getAttribute('data-filtered-type')
+      if (!value || !type) return
+      const key = `${type}:${value}`
+      const current = counts.get(key)
+      if (current) current.count += 1
+      else counts.set(key, { type, value, count: 1 })
     })
-
-    return filterCounts
+    return counts
   }
 
-  /**
-   * 获取用户显示名称
-   */
   getUserDisplayNameFromCache(username: string): string {
     return this.userDisplayNames.get(username) || username
   }
 
-  /**
-   * 获取已过滤推文数量
-   */
   getFilteredCount(): number {
-    return document.querySelectorAll('article[data-testid="tweet"][data-filtered-user]').length
+    return document.querySelectorAll(
+      'article[data-testid="tweet"][data-filtered-user]:not([data-newsliquid-revealed="true"])',
+    ).length
   }
 }

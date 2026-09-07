@@ -1,4 +1,4 @@
-# 6551 推文过滤器 Chrome 插件
+# NewsLiquid X 网页插件
 
 一个用于自动过滤 Twitter/X 推文的 Chrome 浏览器插件，支持账号、关键词和用户名三种过滤方式。
 

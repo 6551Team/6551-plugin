@@ -3,15 +3,16 @@ import pkg from './package.json'
 
 export default defineManifest({
   manifest_version: 3,
-  name: pkg.name,
+  name: 'NewsLiquid',
   version: pkg.version,
-  description: "X (Twitter) 推文内容过滤器 - 自动过滤可疑水军账号和关键词，支持手动上报、误报反馈和白名单管理",
+  description: 'NewsLiquid X 网页插件：自动过滤时间线和评论区垃圾内容，并通过可拖拽浮窗提供发布前评分与建议',
   icons: {
-    48: 'public/logo.png',
+    48: 'public/newsliquid-mark.png',
   },
   action: {
+    default_title: 'NewsLiquid',
     default_icon: {
-      48: 'public/logo.png',
+      48: 'public/newsliquid-mark.png',
     },
     default_popup: 'src/popup/index.html',
   },
@@ -28,15 +29,25 @@ export default defineManifest({
     'alarms',
   ],
   host_permissions: [
+    'https://phoenix-score.6551.io/*',
     'https://6551.tos-cn-hongkong.volces.com/*',
     'https://ai.6551.io/*',
+    'http://127.0.0.1:8080/*',
+    'http://localhost:8080/*',
   ],
   content_security_policy: {
     extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
   },
   web_accessible_resources: [
     {
-      resources: ['white.png', 'black.png'],
+      resources: [
+        'newsliquid-mark.png',
+        'newsliquid-wordmark-dark.png',
+        'newsliquid-wordmark-light.png',
+        'filter-data/yap.wasm.v2',
+        'filter-data/infofi.v2.json',
+        'filter-data/handle.v2.json',
+      ],
       matches: ['https://twitter.com/*', 'https://x.com/*'],
     },
   ],

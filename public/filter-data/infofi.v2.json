@@ -1,0 +1,48 @@
+{
+  "dataList": [
+    {
+      "text": "快速购买",
+      "isRegexp": false
+    },
+    {
+      "text": "骚",
+      "isRegexp": false
+    },
+    {
+      "text": "玩的开",
+      "isRegexp": false
+    },
+    {
+      "text": "福不黑",
+      "isRegexp": false
+    },
+    {
+      "text": "t.me,ca",
+      "isRegexp": false
+    },
+    {
+      "text": "rug\\s+pull",
+      "isRegexp": true
+    },
+    {
+      "text": "👆🌹‍‍",
+      "isRegexp": false
+    },
+    {
+      "text": "👆🔥",
+      "isRegexp": false
+    },
+    {
+      "text": "太涩了",
+      "isRegexp": false
+    },
+    {
+      "text": "我的福",
+      "isRegexp": false
+    },
+    {
+      "text": "看福",
+      "isRegexp": false
+    }
+  ]
+}

@@ -33,7 +33,7 @@ async function handleRefresh() {
     <!-- 左侧菜单 -->
     <el-aside width="240px" class="bg-[#0d0d0d] border-r border-[#2a2a2a] flex flex-col">
       <div class="p-6 border-b border-[#2a2a2a]">
-        <h1 class="text-xl font-bold text-[#409eff] m-0">6551 推文过滤器</h1>
+        <h1 class="text-xl font-bold text-[#6d55e7] m-0">NewsLiquid 推文过滤器</h1>
         <p class="text-sm text-gray-400 mt-2 mb-0">内容过滤管理工具</p>
       </div>
 

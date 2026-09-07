@@ -10,7 +10,10 @@ const AES_KEY = '7Kdf7IBeakXkvIokqFNhC3m@0bB%VyJE'
  */
 function stringToArrayBuffer(str: string): ArrayBuffer {
   const encoder = new TextEncoder()
-  return encoder.encode(str)
+  const bytes = encoder.encode(str)
+  const buffer = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(buffer).set(bytes)
+  return buffer
 }
 
 /**

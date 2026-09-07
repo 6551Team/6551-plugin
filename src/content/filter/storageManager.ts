@@ -243,9 +243,16 @@ export class StorageManager {
           hasChanges = true
         }
 
+        if (changes.showBlockUI) {
+          this.showBlockUI = Boolean(changes.showBlockUI.newValue)
+          console.log(`[推文过滤器] 页面入口已更新: ${this.showBlockUI ? '显示' : '隐藏'}`)
+          hasChanges = true
+        }
+
         if (changes.totalBlockCount) {
           this.totalBlockCount = changes.totalBlockCount.newValue || 0
           console.log(`[推文过滤器] 拦截计数已更新: ${this.totalBlockCount}`)
+          hasChanges = true
         }
 
         if (hasChanges && this.onStorageChangeCallback) {
@@ -259,11 +266,12 @@ export class StorageManager {
    * 检查账号是否在白名单中（手动白名单 + WASM白名单）
    */
   isAccountWhitelisted(username: string): boolean {
-    const cleanUsername = username.startsWith('@') ? username.slice(1) : username
+    const cleanUsername = username.replace(/^@/, '').toLowerCase()
 
     // 检查手动白名单
-    const isManualWhitelisted = this.manualWhitelistAccounts.includes(username) ||
-                               this.manualWhitelistAccounts.includes('@' + username)
+    const isManualWhitelisted = this.manualWhitelistAccounts.some((account) => (
+      account.replace(/^@/, '').toLowerCase() === cleanUsername
+    ))
     if (isManualWhitelisted) {
       return true
     }
@@ -286,18 +294,20 @@ export class StorageManager {
       return false
     }
 
-    const cleanUsername = username.startsWith('@') ? username.slice(1) : username
+    const cleanUsername = username.replace(/^@/, '').toLowerCase()
 
     // 1. 检查手动白名单（优先级最高）
-    const isManualWhitelisted = this.manualWhitelistAccounts.includes(username) ||
-                               this.manualWhitelistAccounts.includes('@' + username)
+    const isManualWhitelisted = this.manualWhitelistAccounts.some((account) => (
+      account.replace(/^@/, '').toLowerCase() === cleanUsername
+    ))
     if (isManualWhitelisted) {
       return false
     }
 
     // 2. 检查手动屏蔽列表
-    const isManualBlocked = this.manualBlockedAccounts.includes(username) ||
-                           this.manualBlockedAccounts.includes('@' + username)
+    const isManualBlocked = this.manualBlockedAccounts.some((account) => (
+      account.replace(/^@/, '').toLowerCase() === cleanUsername
+    ))
     if (isManualBlocked) {
       return true
     }
