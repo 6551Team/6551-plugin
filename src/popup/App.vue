@@ -88,9 +88,9 @@ async function openApiKeyPage(): Promise<void> {
       return
     }
     const opened = window.open('https://app.newsliquid.com/mcp', '_blank')
-    if (!opened) throw new Error('无法打开 APIKEY 页面')
+    if (!opened) throw new Error('无法打开 API Token 页面')
   } catch (error) {
-    showNotice(error instanceof Error ? error.message : '无法打开 APIKEY 页面', 'error')
+    showNotice(error instanceof Error ? error.message : '无法打开 API Token 页面', 'error')
   } finally {
     isOpeningApiKeyPage.value = false
   }
@@ -100,7 +100,7 @@ async function saveServiceSettings(): Promise<void> {
   isSaving.value = true
   try {
     await savePhoenixSettings({ apiKey: service.apiKey.trim() })
-    showNotice('APIKEY 已保存')
+    showNotice('API Token 已保存')
     await refreshHealth()
   } catch (error) {
     showNotice(error instanceof Error ? error.message : '保存失败', 'error')
@@ -217,12 +217,12 @@ onMounted(async () => {
       </div>
 
       <details class="advanced-settings">
-        <summary>评分服务 APIKEY</summary>
+        <summary>评分服务 API Token</summary>
         <div class="settings-body">
-          <label>API Key<input v-model="service.apiKey" class="weui-input" type="password" autocomplete="off" placeholder="复制后粘贴到这里" /></label>
+          <label>API Token<input v-model="service.apiKey" class="weui-input" type="password" autocomplete="off" placeholder="复制后粘贴到这里" /></label>
           <div class="settings-actions">
-            <button class="popup-action settings-action" type="button" :disabled="isOpeningApiKeyPage" @click="openApiKeyPage">{{ isOpeningApiKeyPage ? '打开中…' : '获取 APIKEY' }}</button>
-            <button class="popup-action settings-action" type="button" :disabled="isSaving" @click="saveServiceSettings">{{ isSaving ? '保存中…' : '保存 APIKEY' }}</button>
+            <button class="popup-action settings-action" type="button" :disabled="isOpeningApiKeyPage" @click="openApiKeyPage">{{ isOpeningApiKeyPage ? '打开中…' : '获取 API Token' }}</button>
+            <button class="popup-action settings-action" type="button" :disabled="isSaving" @click="saveServiceSettings">{{ isSaving ? '保存中…' : '保存 API Token' }}</button>
           </div>
         </div>
       </details>
