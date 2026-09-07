@@ -27,6 +27,7 @@ export default defineManifest({
   permissions: [
     'storage',
     'alarms',
+    'tabs',
   ],
   host_permissions: [
     'https://phoenix-score.6551.io/*',

@@ -21,10 +21,12 @@ function extensionRuntimeAvailable(): boolean {
   return typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id && chrome.storage?.local)
 }
 
-export async function remoteFilterUpdateAvailable(): Promise<boolean> {
+export async function remoteFilterUpdateAvailable(force = false): Promise<boolean> {
   if (!extensionRuntimeAvailable()) return false
 
-  const response = await chrome.runtime.sendMessage({ type: 'FILTER_DATA_ENSURE' }) as {
+  const response = await chrome.runtime.sendMessage({
+    type: force ? 'FILTER_DATA_REFRESH' : 'FILTER_DATA_ENSURE',
+  }) as {
     success?: boolean
     error?: string
     data?: { updateAvailable?: boolean }

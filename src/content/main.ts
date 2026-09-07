@@ -56,7 +56,7 @@ async function initialize() {
     // 创建并启动过滤器
     tweetFilter = new TweetFilter()
     await tweetFilter.initialize()
-    void remoteFilterUpdateAvailable()
+    void remoteFilterUpdateAvailable(true)
       .then((available) => {
         if (available) void reloadRemoteRules()
       })
